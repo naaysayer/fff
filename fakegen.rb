@@ -361,7 +361,6 @@ def output_variables(arg_count, has_varargs, has_calling_conventions, is_value_f
   }
   putd_backslash "extern FUNCNAME##_Fake FUNCNAME##_fake;"
   putd_backslash "void FUNCNAME##_reset(void);"
-  putd_backslash function_signature(arg_count, has_varargs, has_calling_conventions, is_value_function) + ";"
 end
 
 #example: ARG0_TYPE arg0, ARG1_TYPE arg1
