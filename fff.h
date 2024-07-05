@@ -27,7 +27,9 @@ SOFTWARE.
 #define FAKE_FUNCTIONS
 
 #include <stdarg.h>
-#include <string.h> /* For memset and memcpy */
+#include <string.h>  /* For memset and memcpy */
+#include <pthread.h> /* For pthread_mutex */
+#include <errno.h>   /* For EINVAL */
 
 #define FFF_MAX_ARGS (20u)
 #ifndef FFF_ARG_HISTORY_LEN
@@ -43,6 +45,7 @@ SOFTWARE.
 #define CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN, FUNCNAME, ...) \
     RETURN(*FUNCNAME)(__VA_ARGS__)
 #endif /* CUSTOM_FFF_FUNCTION_TEMPLATE */
+
 /* -- INTERNAL HELPER MACROS -- */
 #define SET_RETURN_SEQ(FUNCNAME, ARRAY_POINTER, ARRAY_LEN) \
     FUNCNAME##_fake.return_val_seq = ARRAY_POINTER; \
@@ -110,6 +113,21 @@ SOFTWARE.
     SAVE_RET_HISTORY(FUNCNAME, FUNCNAME##_fake.return_val) \
     return FUNCNAME##_fake.return_val; \
 
+#define RETURN_FAKE_RESULT_TS(FUNCNAME) \
+    if (FUNCNAME##_fake.return_val_seq_len){ /* then its a sequence */ \
+        if(FUNCNAME##_fake.return_val_seq_idx < FUNCNAME##_fake.return_val_seq_len) { \
+            SAVE_RET_HISTORY(FUNCNAME, FUNCNAME##_fake.return_val_seq[FUNCNAME##_fake.return_val_seq_idx]) \
+            FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+            return FUNCNAME##_fake.return_val_seq[FUNCNAME##_fake.return_val_seq_idx++]; \
+        } \
+        SAVE_RET_HISTORY(FUNCNAME, FUNCNAME##_fake.return_val_seq[FUNCNAME##_fake.return_val_seq_len-1]) \
+        FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+        return FUNCNAME##_fake.return_val_seq[FUNCNAME##_fake.return_val_seq_len-1]; /* return last element */ \
+    } \
+    SAVE_RET_HISTORY(FUNCNAME, FUNCNAME##_fake.return_val) \
+    FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+    return FUNCNAME##_fake.return_val; \
+
 #ifdef __cplusplus
     #define FFF_EXTERN_C extern "C"{
     #define FFF_END_EXTERN_C } 
@@ -125,6 +143,28 @@ SOFTWARE.
         FUNCNAME##_fake.custom_fake_seq = NULL; \
         FUNCNAME##_fake.arg_history_len = FFF_ARG_HISTORY_LEN; \
     }
+
+#define DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+    void FUNCNAME##_reset(void){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        memset((void*)&FUNCNAME##_fake, 0, sizeof(FUNCNAME##_fake) - sizeof(FUNCNAME##_fake.custom_fake) - sizeof(FUNCNAME##_fake.custom_fake_seq)); \
+        FUNCNAME##_fake.custom_fake = NULL; \
+        FUNCNAME##_fake.custom_fake_seq = NULL; \
+        FUNCNAME##_fake.arg_history_len = FFF_ARG_HISTORY_LEN; \
+        FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+    }
+
+#define DECLARE_PTHREAD_MUTEX \
+    pthread_mutex_t access_mtx;
+
+#define FFF_PTHREAD_MUTEX_LOCK(FUNCNAME) \
+    if (pthread_mutex_lock(&FUNCNAME##_fake.access_mtx) == EINVAL) { \
+    pthread_mutex_init(&FUNCNAME##_fake.access_mtx, NULL); \
+    pthread_mutex_lock(&FUNCNAME##_fake.access_mtx); \
+    } \
+
+#define FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME) \
+    pthread_mutex_unlock(&FUNCNAME##_fake.access_mtx)
 /* -- END INTERNAL HELPER MACROS -- */
 
 typedef void (*fff_function_t)(void);
@@ -6390,6 +6430,6567 @@ FFF_END_EXTERN_C
     DECLARE_FAKE_VALUE_FUNC20_VARARG(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ARG17_TYPE, ARG18_TYPE, ...) \
     DEFINE_FAKE_VALUE_FUNC20_VARARG(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ARG17_TYPE, ARG18_TYPE, ...) \
 
+
+#define DECLARE_FAKE_VOID_FUNC0_TS(FUNCNAME) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, custom_fake, void); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, *custom_fake_seq, void); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VOID_FUNC0_TS(FUNCNAME) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(void){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](); \
+            } \
+            else{ \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](); \
+            } \
+        } \
+        if (FUNCNAME##_fake.custom_fake != NULL){  \
+            FUNCNAME##_fake.custom_fake(); \
+        } \
+        FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VOID_FUNC0_TS(FUNCNAME) \
+    DECLARE_FAKE_VOID_FUNC0_TS(FUNCNAME) \
+    DEFINE_FAKE_VOID_FUNC0_TS(FUNCNAME) \
+
+
+#define DECLARE_FAKE_VOID_FUNC1_TS(FUNCNAME, ARG0_TYPE) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_ARG(ARG0_TYPE, 0, FUNCNAME) \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, custom_fake, ARG0_TYPE); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, *custom_fake_seq, ARG0_TYPE); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VOID_FUNC1_TS(FUNCNAME, ARG0_TYPE) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(ARG0_TYPE arg0){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        SAVE_ARG(FUNCNAME, 0); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+            SAVE_ARG_HISTORY(FUNCNAME, 0); \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](arg0); \
+            } \
+            else{ \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](arg0); \
+            } \
+        } \
+        if (FUNCNAME##_fake.custom_fake != NULL){  \
+            FUNCNAME##_fake.custom_fake(arg0); \
+        } \
+        FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VOID_FUNC1_TS(FUNCNAME, ARG0_TYPE) \
+    DECLARE_FAKE_VOID_FUNC1_TS(FUNCNAME, ARG0_TYPE) \
+    DEFINE_FAKE_VOID_FUNC1_TS(FUNCNAME, ARG0_TYPE) \
+
+
+#define DECLARE_FAKE_VOID_FUNC2_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_ARG(ARG0_TYPE, 0, FUNCNAME) \
+        DECLARE_ARG(ARG1_TYPE, 1, FUNCNAME) \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, custom_fake, ARG0_TYPE, ARG1_TYPE); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, *custom_fake_seq, ARG0_TYPE, ARG1_TYPE); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VOID_FUNC2_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(ARG0_TYPE arg0, ARG1_TYPE arg1){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        SAVE_ARG(FUNCNAME, 0); \
+        SAVE_ARG(FUNCNAME, 1); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+            SAVE_ARG_HISTORY(FUNCNAME, 0); \
+            SAVE_ARG_HISTORY(FUNCNAME, 1); \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](arg0, arg1); \
+            } \
+            else{ \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](arg0, arg1); \
+            } \
+        } \
+        if (FUNCNAME##_fake.custom_fake != NULL){  \
+            FUNCNAME##_fake.custom_fake(arg0, arg1); \
+        } \
+        FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VOID_FUNC2_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE) \
+    DECLARE_FAKE_VOID_FUNC2_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE) \
+    DEFINE_FAKE_VOID_FUNC2_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE) \
+
+
+#define DECLARE_FAKE_VOID_FUNC3_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_ARG(ARG0_TYPE, 0, FUNCNAME) \
+        DECLARE_ARG(ARG1_TYPE, 1, FUNCNAME) \
+        DECLARE_ARG(ARG2_TYPE, 2, FUNCNAME) \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, custom_fake, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, *custom_fake_seq, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VOID_FUNC3_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(ARG0_TYPE arg0, ARG1_TYPE arg1, ARG2_TYPE arg2){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        SAVE_ARG(FUNCNAME, 0); \
+        SAVE_ARG(FUNCNAME, 1); \
+        SAVE_ARG(FUNCNAME, 2); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+            SAVE_ARG_HISTORY(FUNCNAME, 0); \
+            SAVE_ARG_HISTORY(FUNCNAME, 1); \
+            SAVE_ARG_HISTORY(FUNCNAME, 2); \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](arg0, arg1, arg2); \
+            } \
+            else{ \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](arg0, arg1, arg2); \
+            } \
+        } \
+        if (FUNCNAME##_fake.custom_fake != NULL){  \
+            FUNCNAME##_fake.custom_fake(arg0, arg1, arg2); \
+        } \
+        FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VOID_FUNC3_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE) \
+    DECLARE_FAKE_VOID_FUNC3_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE) \
+    DEFINE_FAKE_VOID_FUNC3_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE) \
+
+
+#define DECLARE_FAKE_VOID_FUNC4_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_ARG(ARG0_TYPE, 0, FUNCNAME) \
+        DECLARE_ARG(ARG1_TYPE, 1, FUNCNAME) \
+        DECLARE_ARG(ARG2_TYPE, 2, FUNCNAME) \
+        DECLARE_ARG(ARG3_TYPE, 3, FUNCNAME) \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, custom_fake, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, *custom_fake_seq, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VOID_FUNC4_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(ARG0_TYPE arg0, ARG1_TYPE arg1, ARG2_TYPE arg2, ARG3_TYPE arg3){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        SAVE_ARG(FUNCNAME, 0); \
+        SAVE_ARG(FUNCNAME, 1); \
+        SAVE_ARG(FUNCNAME, 2); \
+        SAVE_ARG(FUNCNAME, 3); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+            SAVE_ARG_HISTORY(FUNCNAME, 0); \
+            SAVE_ARG_HISTORY(FUNCNAME, 1); \
+            SAVE_ARG_HISTORY(FUNCNAME, 2); \
+            SAVE_ARG_HISTORY(FUNCNAME, 3); \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](arg0, arg1, arg2, arg3); \
+            } \
+            else{ \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](arg0, arg1, arg2, arg3); \
+            } \
+        } \
+        if (FUNCNAME##_fake.custom_fake != NULL){  \
+            FUNCNAME##_fake.custom_fake(arg0, arg1, arg2, arg3); \
+        } \
+        FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VOID_FUNC4_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE) \
+    DECLARE_FAKE_VOID_FUNC4_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE) \
+    DEFINE_FAKE_VOID_FUNC4_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE) \
+
+
+#define DECLARE_FAKE_VOID_FUNC5_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_ARG(ARG0_TYPE, 0, FUNCNAME) \
+        DECLARE_ARG(ARG1_TYPE, 1, FUNCNAME) \
+        DECLARE_ARG(ARG2_TYPE, 2, FUNCNAME) \
+        DECLARE_ARG(ARG3_TYPE, 3, FUNCNAME) \
+        DECLARE_ARG(ARG4_TYPE, 4, FUNCNAME) \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, custom_fake, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, *custom_fake_seq, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VOID_FUNC5_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(ARG0_TYPE arg0, ARG1_TYPE arg1, ARG2_TYPE arg2, ARG3_TYPE arg3, ARG4_TYPE arg4){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        SAVE_ARG(FUNCNAME, 0); \
+        SAVE_ARG(FUNCNAME, 1); \
+        SAVE_ARG(FUNCNAME, 2); \
+        SAVE_ARG(FUNCNAME, 3); \
+        SAVE_ARG(FUNCNAME, 4); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+            SAVE_ARG_HISTORY(FUNCNAME, 0); \
+            SAVE_ARG_HISTORY(FUNCNAME, 1); \
+            SAVE_ARG_HISTORY(FUNCNAME, 2); \
+            SAVE_ARG_HISTORY(FUNCNAME, 3); \
+            SAVE_ARG_HISTORY(FUNCNAME, 4); \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](arg0, arg1, arg2, arg3, arg4); \
+            } \
+            else{ \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](arg0, arg1, arg2, arg3, arg4); \
+            } \
+        } \
+        if (FUNCNAME##_fake.custom_fake != NULL){  \
+            FUNCNAME##_fake.custom_fake(arg0, arg1, arg2, arg3, arg4); \
+        } \
+        FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VOID_FUNC5_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE) \
+    DECLARE_FAKE_VOID_FUNC5_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE) \
+    DEFINE_FAKE_VOID_FUNC5_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE) \
+
+
+#define DECLARE_FAKE_VOID_FUNC6_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_ARG(ARG0_TYPE, 0, FUNCNAME) \
+        DECLARE_ARG(ARG1_TYPE, 1, FUNCNAME) \
+        DECLARE_ARG(ARG2_TYPE, 2, FUNCNAME) \
+        DECLARE_ARG(ARG3_TYPE, 3, FUNCNAME) \
+        DECLARE_ARG(ARG4_TYPE, 4, FUNCNAME) \
+        DECLARE_ARG(ARG5_TYPE, 5, FUNCNAME) \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, custom_fake, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, *custom_fake_seq, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VOID_FUNC6_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(ARG0_TYPE arg0, ARG1_TYPE arg1, ARG2_TYPE arg2, ARG3_TYPE arg3, ARG4_TYPE arg4, ARG5_TYPE arg5){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        SAVE_ARG(FUNCNAME, 0); \
+        SAVE_ARG(FUNCNAME, 1); \
+        SAVE_ARG(FUNCNAME, 2); \
+        SAVE_ARG(FUNCNAME, 3); \
+        SAVE_ARG(FUNCNAME, 4); \
+        SAVE_ARG(FUNCNAME, 5); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+            SAVE_ARG_HISTORY(FUNCNAME, 0); \
+            SAVE_ARG_HISTORY(FUNCNAME, 1); \
+            SAVE_ARG_HISTORY(FUNCNAME, 2); \
+            SAVE_ARG_HISTORY(FUNCNAME, 3); \
+            SAVE_ARG_HISTORY(FUNCNAME, 4); \
+            SAVE_ARG_HISTORY(FUNCNAME, 5); \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](arg0, arg1, arg2, arg3, arg4, arg5); \
+            } \
+            else{ \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](arg0, arg1, arg2, arg3, arg4, arg5); \
+            } \
+        } \
+        if (FUNCNAME##_fake.custom_fake != NULL){  \
+            FUNCNAME##_fake.custom_fake(arg0, arg1, arg2, arg3, arg4, arg5); \
+        } \
+        FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VOID_FUNC6_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE) \
+    DECLARE_FAKE_VOID_FUNC6_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE) \
+    DEFINE_FAKE_VOID_FUNC6_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE) \
+
+
+#define DECLARE_FAKE_VOID_FUNC7_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_ARG(ARG0_TYPE, 0, FUNCNAME) \
+        DECLARE_ARG(ARG1_TYPE, 1, FUNCNAME) \
+        DECLARE_ARG(ARG2_TYPE, 2, FUNCNAME) \
+        DECLARE_ARG(ARG3_TYPE, 3, FUNCNAME) \
+        DECLARE_ARG(ARG4_TYPE, 4, FUNCNAME) \
+        DECLARE_ARG(ARG5_TYPE, 5, FUNCNAME) \
+        DECLARE_ARG(ARG6_TYPE, 6, FUNCNAME) \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, custom_fake, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, *custom_fake_seq, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VOID_FUNC7_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(ARG0_TYPE arg0, ARG1_TYPE arg1, ARG2_TYPE arg2, ARG3_TYPE arg3, ARG4_TYPE arg4, ARG5_TYPE arg5, ARG6_TYPE arg6){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        SAVE_ARG(FUNCNAME, 0); \
+        SAVE_ARG(FUNCNAME, 1); \
+        SAVE_ARG(FUNCNAME, 2); \
+        SAVE_ARG(FUNCNAME, 3); \
+        SAVE_ARG(FUNCNAME, 4); \
+        SAVE_ARG(FUNCNAME, 5); \
+        SAVE_ARG(FUNCNAME, 6); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+            SAVE_ARG_HISTORY(FUNCNAME, 0); \
+            SAVE_ARG_HISTORY(FUNCNAME, 1); \
+            SAVE_ARG_HISTORY(FUNCNAME, 2); \
+            SAVE_ARG_HISTORY(FUNCNAME, 3); \
+            SAVE_ARG_HISTORY(FUNCNAME, 4); \
+            SAVE_ARG_HISTORY(FUNCNAME, 5); \
+            SAVE_ARG_HISTORY(FUNCNAME, 6); \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](arg0, arg1, arg2, arg3, arg4, arg5, arg6); \
+            } \
+            else{ \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](arg0, arg1, arg2, arg3, arg4, arg5, arg6); \
+            } \
+        } \
+        if (FUNCNAME##_fake.custom_fake != NULL){  \
+            FUNCNAME##_fake.custom_fake(arg0, arg1, arg2, arg3, arg4, arg5, arg6); \
+        } \
+        FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VOID_FUNC7_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE) \
+    DECLARE_FAKE_VOID_FUNC7_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE) \
+    DEFINE_FAKE_VOID_FUNC7_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE) \
+
+
+#define DECLARE_FAKE_VOID_FUNC8_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_ARG(ARG0_TYPE, 0, FUNCNAME) \
+        DECLARE_ARG(ARG1_TYPE, 1, FUNCNAME) \
+        DECLARE_ARG(ARG2_TYPE, 2, FUNCNAME) \
+        DECLARE_ARG(ARG3_TYPE, 3, FUNCNAME) \
+        DECLARE_ARG(ARG4_TYPE, 4, FUNCNAME) \
+        DECLARE_ARG(ARG5_TYPE, 5, FUNCNAME) \
+        DECLARE_ARG(ARG6_TYPE, 6, FUNCNAME) \
+        DECLARE_ARG(ARG7_TYPE, 7, FUNCNAME) \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, custom_fake, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, *custom_fake_seq, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VOID_FUNC8_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(ARG0_TYPE arg0, ARG1_TYPE arg1, ARG2_TYPE arg2, ARG3_TYPE arg3, ARG4_TYPE arg4, ARG5_TYPE arg5, ARG6_TYPE arg6, ARG7_TYPE arg7){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        SAVE_ARG(FUNCNAME, 0); \
+        SAVE_ARG(FUNCNAME, 1); \
+        SAVE_ARG(FUNCNAME, 2); \
+        SAVE_ARG(FUNCNAME, 3); \
+        SAVE_ARG(FUNCNAME, 4); \
+        SAVE_ARG(FUNCNAME, 5); \
+        SAVE_ARG(FUNCNAME, 6); \
+        SAVE_ARG(FUNCNAME, 7); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+            SAVE_ARG_HISTORY(FUNCNAME, 0); \
+            SAVE_ARG_HISTORY(FUNCNAME, 1); \
+            SAVE_ARG_HISTORY(FUNCNAME, 2); \
+            SAVE_ARG_HISTORY(FUNCNAME, 3); \
+            SAVE_ARG_HISTORY(FUNCNAME, 4); \
+            SAVE_ARG_HISTORY(FUNCNAME, 5); \
+            SAVE_ARG_HISTORY(FUNCNAME, 6); \
+            SAVE_ARG_HISTORY(FUNCNAME, 7); \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7); \
+            } \
+            else{ \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7); \
+            } \
+        } \
+        if (FUNCNAME##_fake.custom_fake != NULL){  \
+            FUNCNAME##_fake.custom_fake(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7); \
+        } \
+        FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VOID_FUNC8_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE) \
+    DECLARE_FAKE_VOID_FUNC8_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE) \
+    DEFINE_FAKE_VOID_FUNC8_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE) \
+
+
+#define DECLARE_FAKE_VOID_FUNC9_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_ARG(ARG0_TYPE, 0, FUNCNAME) \
+        DECLARE_ARG(ARG1_TYPE, 1, FUNCNAME) \
+        DECLARE_ARG(ARG2_TYPE, 2, FUNCNAME) \
+        DECLARE_ARG(ARG3_TYPE, 3, FUNCNAME) \
+        DECLARE_ARG(ARG4_TYPE, 4, FUNCNAME) \
+        DECLARE_ARG(ARG5_TYPE, 5, FUNCNAME) \
+        DECLARE_ARG(ARG6_TYPE, 6, FUNCNAME) \
+        DECLARE_ARG(ARG7_TYPE, 7, FUNCNAME) \
+        DECLARE_ARG(ARG8_TYPE, 8, FUNCNAME) \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, custom_fake, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, *custom_fake_seq, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VOID_FUNC9_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(ARG0_TYPE arg0, ARG1_TYPE arg1, ARG2_TYPE arg2, ARG3_TYPE arg3, ARG4_TYPE arg4, ARG5_TYPE arg5, ARG6_TYPE arg6, ARG7_TYPE arg7, ARG8_TYPE arg8){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        SAVE_ARG(FUNCNAME, 0); \
+        SAVE_ARG(FUNCNAME, 1); \
+        SAVE_ARG(FUNCNAME, 2); \
+        SAVE_ARG(FUNCNAME, 3); \
+        SAVE_ARG(FUNCNAME, 4); \
+        SAVE_ARG(FUNCNAME, 5); \
+        SAVE_ARG(FUNCNAME, 6); \
+        SAVE_ARG(FUNCNAME, 7); \
+        SAVE_ARG(FUNCNAME, 8); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+            SAVE_ARG_HISTORY(FUNCNAME, 0); \
+            SAVE_ARG_HISTORY(FUNCNAME, 1); \
+            SAVE_ARG_HISTORY(FUNCNAME, 2); \
+            SAVE_ARG_HISTORY(FUNCNAME, 3); \
+            SAVE_ARG_HISTORY(FUNCNAME, 4); \
+            SAVE_ARG_HISTORY(FUNCNAME, 5); \
+            SAVE_ARG_HISTORY(FUNCNAME, 6); \
+            SAVE_ARG_HISTORY(FUNCNAME, 7); \
+            SAVE_ARG_HISTORY(FUNCNAME, 8); \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8); \
+            } \
+            else{ \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8); \
+            } \
+        } \
+        if (FUNCNAME##_fake.custom_fake != NULL){  \
+            FUNCNAME##_fake.custom_fake(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8); \
+        } \
+        FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VOID_FUNC9_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE) \
+    DECLARE_FAKE_VOID_FUNC9_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE) \
+    DEFINE_FAKE_VOID_FUNC9_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE) \
+
+
+#define DECLARE_FAKE_VOID_FUNC10_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_ARG(ARG0_TYPE, 0, FUNCNAME) \
+        DECLARE_ARG(ARG1_TYPE, 1, FUNCNAME) \
+        DECLARE_ARG(ARG2_TYPE, 2, FUNCNAME) \
+        DECLARE_ARG(ARG3_TYPE, 3, FUNCNAME) \
+        DECLARE_ARG(ARG4_TYPE, 4, FUNCNAME) \
+        DECLARE_ARG(ARG5_TYPE, 5, FUNCNAME) \
+        DECLARE_ARG(ARG6_TYPE, 6, FUNCNAME) \
+        DECLARE_ARG(ARG7_TYPE, 7, FUNCNAME) \
+        DECLARE_ARG(ARG8_TYPE, 8, FUNCNAME) \
+        DECLARE_ARG(ARG9_TYPE, 9, FUNCNAME) \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, custom_fake, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, *custom_fake_seq, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VOID_FUNC10_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(ARG0_TYPE arg0, ARG1_TYPE arg1, ARG2_TYPE arg2, ARG3_TYPE arg3, ARG4_TYPE arg4, ARG5_TYPE arg5, ARG6_TYPE arg6, ARG7_TYPE arg7, ARG8_TYPE arg8, ARG9_TYPE arg9){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        SAVE_ARG(FUNCNAME, 0); \
+        SAVE_ARG(FUNCNAME, 1); \
+        SAVE_ARG(FUNCNAME, 2); \
+        SAVE_ARG(FUNCNAME, 3); \
+        SAVE_ARG(FUNCNAME, 4); \
+        SAVE_ARG(FUNCNAME, 5); \
+        SAVE_ARG(FUNCNAME, 6); \
+        SAVE_ARG(FUNCNAME, 7); \
+        SAVE_ARG(FUNCNAME, 8); \
+        SAVE_ARG(FUNCNAME, 9); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+            SAVE_ARG_HISTORY(FUNCNAME, 0); \
+            SAVE_ARG_HISTORY(FUNCNAME, 1); \
+            SAVE_ARG_HISTORY(FUNCNAME, 2); \
+            SAVE_ARG_HISTORY(FUNCNAME, 3); \
+            SAVE_ARG_HISTORY(FUNCNAME, 4); \
+            SAVE_ARG_HISTORY(FUNCNAME, 5); \
+            SAVE_ARG_HISTORY(FUNCNAME, 6); \
+            SAVE_ARG_HISTORY(FUNCNAME, 7); \
+            SAVE_ARG_HISTORY(FUNCNAME, 8); \
+            SAVE_ARG_HISTORY(FUNCNAME, 9); \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9); \
+            } \
+            else{ \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9); \
+            } \
+        } \
+        if (FUNCNAME##_fake.custom_fake != NULL){  \
+            FUNCNAME##_fake.custom_fake(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9); \
+        } \
+        FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VOID_FUNC10_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE) \
+    DECLARE_FAKE_VOID_FUNC10_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE) \
+    DEFINE_FAKE_VOID_FUNC10_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE) \
+
+
+#define DECLARE_FAKE_VOID_FUNC11_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_ARG(ARG0_TYPE, 0, FUNCNAME) \
+        DECLARE_ARG(ARG1_TYPE, 1, FUNCNAME) \
+        DECLARE_ARG(ARG2_TYPE, 2, FUNCNAME) \
+        DECLARE_ARG(ARG3_TYPE, 3, FUNCNAME) \
+        DECLARE_ARG(ARG4_TYPE, 4, FUNCNAME) \
+        DECLARE_ARG(ARG5_TYPE, 5, FUNCNAME) \
+        DECLARE_ARG(ARG6_TYPE, 6, FUNCNAME) \
+        DECLARE_ARG(ARG7_TYPE, 7, FUNCNAME) \
+        DECLARE_ARG(ARG8_TYPE, 8, FUNCNAME) \
+        DECLARE_ARG(ARG9_TYPE, 9, FUNCNAME) \
+        DECLARE_ARG(ARG10_TYPE, 10, FUNCNAME) \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, custom_fake, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, *custom_fake_seq, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VOID_FUNC11_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(ARG0_TYPE arg0, ARG1_TYPE arg1, ARG2_TYPE arg2, ARG3_TYPE arg3, ARG4_TYPE arg4, ARG5_TYPE arg5, ARG6_TYPE arg6, ARG7_TYPE arg7, ARG8_TYPE arg8, ARG9_TYPE arg9, ARG10_TYPE arg10){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        SAVE_ARG(FUNCNAME, 0); \
+        SAVE_ARG(FUNCNAME, 1); \
+        SAVE_ARG(FUNCNAME, 2); \
+        SAVE_ARG(FUNCNAME, 3); \
+        SAVE_ARG(FUNCNAME, 4); \
+        SAVE_ARG(FUNCNAME, 5); \
+        SAVE_ARG(FUNCNAME, 6); \
+        SAVE_ARG(FUNCNAME, 7); \
+        SAVE_ARG(FUNCNAME, 8); \
+        SAVE_ARG(FUNCNAME, 9); \
+        SAVE_ARG(FUNCNAME, 10); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+            SAVE_ARG_HISTORY(FUNCNAME, 0); \
+            SAVE_ARG_HISTORY(FUNCNAME, 1); \
+            SAVE_ARG_HISTORY(FUNCNAME, 2); \
+            SAVE_ARG_HISTORY(FUNCNAME, 3); \
+            SAVE_ARG_HISTORY(FUNCNAME, 4); \
+            SAVE_ARG_HISTORY(FUNCNAME, 5); \
+            SAVE_ARG_HISTORY(FUNCNAME, 6); \
+            SAVE_ARG_HISTORY(FUNCNAME, 7); \
+            SAVE_ARG_HISTORY(FUNCNAME, 8); \
+            SAVE_ARG_HISTORY(FUNCNAME, 9); \
+            SAVE_ARG_HISTORY(FUNCNAME, 10); \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10); \
+            } \
+            else{ \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10); \
+            } \
+        } \
+        if (FUNCNAME##_fake.custom_fake != NULL){  \
+            FUNCNAME##_fake.custom_fake(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10); \
+        } \
+        FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VOID_FUNC11_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE) \
+    DECLARE_FAKE_VOID_FUNC11_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE) \
+    DEFINE_FAKE_VOID_FUNC11_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE) \
+
+
+#define DECLARE_FAKE_VOID_FUNC12_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_ARG(ARG0_TYPE, 0, FUNCNAME) \
+        DECLARE_ARG(ARG1_TYPE, 1, FUNCNAME) \
+        DECLARE_ARG(ARG2_TYPE, 2, FUNCNAME) \
+        DECLARE_ARG(ARG3_TYPE, 3, FUNCNAME) \
+        DECLARE_ARG(ARG4_TYPE, 4, FUNCNAME) \
+        DECLARE_ARG(ARG5_TYPE, 5, FUNCNAME) \
+        DECLARE_ARG(ARG6_TYPE, 6, FUNCNAME) \
+        DECLARE_ARG(ARG7_TYPE, 7, FUNCNAME) \
+        DECLARE_ARG(ARG8_TYPE, 8, FUNCNAME) \
+        DECLARE_ARG(ARG9_TYPE, 9, FUNCNAME) \
+        DECLARE_ARG(ARG10_TYPE, 10, FUNCNAME) \
+        DECLARE_ARG(ARG11_TYPE, 11, FUNCNAME) \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, custom_fake, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, *custom_fake_seq, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VOID_FUNC12_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(ARG0_TYPE arg0, ARG1_TYPE arg1, ARG2_TYPE arg2, ARG3_TYPE arg3, ARG4_TYPE arg4, ARG5_TYPE arg5, ARG6_TYPE arg6, ARG7_TYPE arg7, ARG8_TYPE arg8, ARG9_TYPE arg9, ARG10_TYPE arg10, ARG11_TYPE arg11){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        SAVE_ARG(FUNCNAME, 0); \
+        SAVE_ARG(FUNCNAME, 1); \
+        SAVE_ARG(FUNCNAME, 2); \
+        SAVE_ARG(FUNCNAME, 3); \
+        SAVE_ARG(FUNCNAME, 4); \
+        SAVE_ARG(FUNCNAME, 5); \
+        SAVE_ARG(FUNCNAME, 6); \
+        SAVE_ARG(FUNCNAME, 7); \
+        SAVE_ARG(FUNCNAME, 8); \
+        SAVE_ARG(FUNCNAME, 9); \
+        SAVE_ARG(FUNCNAME, 10); \
+        SAVE_ARG(FUNCNAME, 11); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+            SAVE_ARG_HISTORY(FUNCNAME, 0); \
+            SAVE_ARG_HISTORY(FUNCNAME, 1); \
+            SAVE_ARG_HISTORY(FUNCNAME, 2); \
+            SAVE_ARG_HISTORY(FUNCNAME, 3); \
+            SAVE_ARG_HISTORY(FUNCNAME, 4); \
+            SAVE_ARG_HISTORY(FUNCNAME, 5); \
+            SAVE_ARG_HISTORY(FUNCNAME, 6); \
+            SAVE_ARG_HISTORY(FUNCNAME, 7); \
+            SAVE_ARG_HISTORY(FUNCNAME, 8); \
+            SAVE_ARG_HISTORY(FUNCNAME, 9); \
+            SAVE_ARG_HISTORY(FUNCNAME, 10); \
+            SAVE_ARG_HISTORY(FUNCNAME, 11); \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11); \
+            } \
+            else{ \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11); \
+            } \
+        } \
+        if (FUNCNAME##_fake.custom_fake != NULL){  \
+            FUNCNAME##_fake.custom_fake(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11); \
+        } \
+        FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VOID_FUNC12_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE) \
+    DECLARE_FAKE_VOID_FUNC12_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE) \
+    DEFINE_FAKE_VOID_FUNC12_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE) \
+
+
+#define DECLARE_FAKE_VOID_FUNC13_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_ARG(ARG0_TYPE, 0, FUNCNAME) \
+        DECLARE_ARG(ARG1_TYPE, 1, FUNCNAME) \
+        DECLARE_ARG(ARG2_TYPE, 2, FUNCNAME) \
+        DECLARE_ARG(ARG3_TYPE, 3, FUNCNAME) \
+        DECLARE_ARG(ARG4_TYPE, 4, FUNCNAME) \
+        DECLARE_ARG(ARG5_TYPE, 5, FUNCNAME) \
+        DECLARE_ARG(ARG6_TYPE, 6, FUNCNAME) \
+        DECLARE_ARG(ARG7_TYPE, 7, FUNCNAME) \
+        DECLARE_ARG(ARG8_TYPE, 8, FUNCNAME) \
+        DECLARE_ARG(ARG9_TYPE, 9, FUNCNAME) \
+        DECLARE_ARG(ARG10_TYPE, 10, FUNCNAME) \
+        DECLARE_ARG(ARG11_TYPE, 11, FUNCNAME) \
+        DECLARE_ARG(ARG12_TYPE, 12, FUNCNAME) \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, custom_fake, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, *custom_fake_seq, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VOID_FUNC13_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(ARG0_TYPE arg0, ARG1_TYPE arg1, ARG2_TYPE arg2, ARG3_TYPE arg3, ARG4_TYPE arg4, ARG5_TYPE arg5, ARG6_TYPE arg6, ARG7_TYPE arg7, ARG8_TYPE arg8, ARG9_TYPE arg9, ARG10_TYPE arg10, ARG11_TYPE arg11, ARG12_TYPE arg12){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        SAVE_ARG(FUNCNAME, 0); \
+        SAVE_ARG(FUNCNAME, 1); \
+        SAVE_ARG(FUNCNAME, 2); \
+        SAVE_ARG(FUNCNAME, 3); \
+        SAVE_ARG(FUNCNAME, 4); \
+        SAVE_ARG(FUNCNAME, 5); \
+        SAVE_ARG(FUNCNAME, 6); \
+        SAVE_ARG(FUNCNAME, 7); \
+        SAVE_ARG(FUNCNAME, 8); \
+        SAVE_ARG(FUNCNAME, 9); \
+        SAVE_ARG(FUNCNAME, 10); \
+        SAVE_ARG(FUNCNAME, 11); \
+        SAVE_ARG(FUNCNAME, 12); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+            SAVE_ARG_HISTORY(FUNCNAME, 0); \
+            SAVE_ARG_HISTORY(FUNCNAME, 1); \
+            SAVE_ARG_HISTORY(FUNCNAME, 2); \
+            SAVE_ARG_HISTORY(FUNCNAME, 3); \
+            SAVE_ARG_HISTORY(FUNCNAME, 4); \
+            SAVE_ARG_HISTORY(FUNCNAME, 5); \
+            SAVE_ARG_HISTORY(FUNCNAME, 6); \
+            SAVE_ARG_HISTORY(FUNCNAME, 7); \
+            SAVE_ARG_HISTORY(FUNCNAME, 8); \
+            SAVE_ARG_HISTORY(FUNCNAME, 9); \
+            SAVE_ARG_HISTORY(FUNCNAME, 10); \
+            SAVE_ARG_HISTORY(FUNCNAME, 11); \
+            SAVE_ARG_HISTORY(FUNCNAME, 12); \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12); \
+            } \
+            else{ \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12); \
+            } \
+        } \
+        if (FUNCNAME##_fake.custom_fake != NULL){  \
+            FUNCNAME##_fake.custom_fake(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12); \
+        } \
+        FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VOID_FUNC13_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE) \
+    DECLARE_FAKE_VOID_FUNC13_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE) \
+    DEFINE_FAKE_VOID_FUNC13_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE) \
+
+
+#define DECLARE_FAKE_VOID_FUNC14_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_ARG(ARG0_TYPE, 0, FUNCNAME) \
+        DECLARE_ARG(ARG1_TYPE, 1, FUNCNAME) \
+        DECLARE_ARG(ARG2_TYPE, 2, FUNCNAME) \
+        DECLARE_ARG(ARG3_TYPE, 3, FUNCNAME) \
+        DECLARE_ARG(ARG4_TYPE, 4, FUNCNAME) \
+        DECLARE_ARG(ARG5_TYPE, 5, FUNCNAME) \
+        DECLARE_ARG(ARG6_TYPE, 6, FUNCNAME) \
+        DECLARE_ARG(ARG7_TYPE, 7, FUNCNAME) \
+        DECLARE_ARG(ARG8_TYPE, 8, FUNCNAME) \
+        DECLARE_ARG(ARG9_TYPE, 9, FUNCNAME) \
+        DECLARE_ARG(ARG10_TYPE, 10, FUNCNAME) \
+        DECLARE_ARG(ARG11_TYPE, 11, FUNCNAME) \
+        DECLARE_ARG(ARG12_TYPE, 12, FUNCNAME) \
+        DECLARE_ARG(ARG13_TYPE, 13, FUNCNAME) \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, custom_fake, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, *custom_fake_seq, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VOID_FUNC14_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(ARG0_TYPE arg0, ARG1_TYPE arg1, ARG2_TYPE arg2, ARG3_TYPE arg3, ARG4_TYPE arg4, ARG5_TYPE arg5, ARG6_TYPE arg6, ARG7_TYPE arg7, ARG8_TYPE arg8, ARG9_TYPE arg9, ARG10_TYPE arg10, ARG11_TYPE arg11, ARG12_TYPE arg12, ARG13_TYPE arg13){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        SAVE_ARG(FUNCNAME, 0); \
+        SAVE_ARG(FUNCNAME, 1); \
+        SAVE_ARG(FUNCNAME, 2); \
+        SAVE_ARG(FUNCNAME, 3); \
+        SAVE_ARG(FUNCNAME, 4); \
+        SAVE_ARG(FUNCNAME, 5); \
+        SAVE_ARG(FUNCNAME, 6); \
+        SAVE_ARG(FUNCNAME, 7); \
+        SAVE_ARG(FUNCNAME, 8); \
+        SAVE_ARG(FUNCNAME, 9); \
+        SAVE_ARG(FUNCNAME, 10); \
+        SAVE_ARG(FUNCNAME, 11); \
+        SAVE_ARG(FUNCNAME, 12); \
+        SAVE_ARG(FUNCNAME, 13); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+            SAVE_ARG_HISTORY(FUNCNAME, 0); \
+            SAVE_ARG_HISTORY(FUNCNAME, 1); \
+            SAVE_ARG_HISTORY(FUNCNAME, 2); \
+            SAVE_ARG_HISTORY(FUNCNAME, 3); \
+            SAVE_ARG_HISTORY(FUNCNAME, 4); \
+            SAVE_ARG_HISTORY(FUNCNAME, 5); \
+            SAVE_ARG_HISTORY(FUNCNAME, 6); \
+            SAVE_ARG_HISTORY(FUNCNAME, 7); \
+            SAVE_ARG_HISTORY(FUNCNAME, 8); \
+            SAVE_ARG_HISTORY(FUNCNAME, 9); \
+            SAVE_ARG_HISTORY(FUNCNAME, 10); \
+            SAVE_ARG_HISTORY(FUNCNAME, 11); \
+            SAVE_ARG_HISTORY(FUNCNAME, 12); \
+            SAVE_ARG_HISTORY(FUNCNAME, 13); \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13); \
+            } \
+            else{ \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13); \
+            } \
+        } \
+        if (FUNCNAME##_fake.custom_fake != NULL){  \
+            FUNCNAME##_fake.custom_fake(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13); \
+        } \
+        FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VOID_FUNC14_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE) \
+    DECLARE_FAKE_VOID_FUNC14_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE) \
+    DEFINE_FAKE_VOID_FUNC14_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE) \
+
+
+#define DECLARE_FAKE_VOID_FUNC15_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_ARG(ARG0_TYPE, 0, FUNCNAME) \
+        DECLARE_ARG(ARG1_TYPE, 1, FUNCNAME) \
+        DECLARE_ARG(ARG2_TYPE, 2, FUNCNAME) \
+        DECLARE_ARG(ARG3_TYPE, 3, FUNCNAME) \
+        DECLARE_ARG(ARG4_TYPE, 4, FUNCNAME) \
+        DECLARE_ARG(ARG5_TYPE, 5, FUNCNAME) \
+        DECLARE_ARG(ARG6_TYPE, 6, FUNCNAME) \
+        DECLARE_ARG(ARG7_TYPE, 7, FUNCNAME) \
+        DECLARE_ARG(ARG8_TYPE, 8, FUNCNAME) \
+        DECLARE_ARG(ARG9_TYPE, 9, FUNCNAME) \
+        DECLARE_ARG(ARG10_TYPE, 10, FUNCNAME) \
+        DECLARE_ARG(ARG11_TYPE, 11, FUNCNAME) \
+        DECLARE_ARG(ARG12_TYPE, 12, FUNCNAME) \
+        DECLARE_ARG(ARG13_TYPE, 13, FUNCNAME) \
+        DECLARE_ARG(ARG14_TYPE, 14, FUNCNAME) \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, custom_fake, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, *custom_fake_seq, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VOID_FUNC15_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(ARG0_TYPE arg0, ARG1_TYPE arg1, ARG2_TYPE arg2, ARG3_TYPE arg3, ARG4_TYPE arg4, ARG5_TYPE arg5, ARG6_TYPE arg6, ARG7_TYPE arg7, ARG8_TYPE arg8, ARG9_TYPE arg9, ARG10_TYPE arg10, ARG11_TYPE arg11, ARG12_TYPE arg12, ARG13_TYPE arg13, ARG14_TYPE arg14){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        SAVE_ARG(FUNCNAME, 0); \
+        SAVE_ARG(FUNCNAME, 1); \
+        SAVE_ARG(FUNCNAME, 2); \
+        SAVE_ARG(FUNCNAME, 3); \
+        SAVE_ARG(FUNCNAME, 4); \
+        SAVE_ARG(FUNCNAME, 5); \
+        SAVE_ARG(FUNCNAME, 6); \
+        SAVE_ARG(FUNCNAME, 7); \
+        SAVE_ARG(FUNCNAME, 8); \
+        SAVE_ARG(FUNCNAME, 9); \
+        SAVE_ARG(FUNCNAME, 10); \
+        SAVE_ARG(FUNCNAME, 11); \
+        SAVE_ARG(FUNCNAME, 12); \
+        SAVE_ARG(FUNCNAME, 13); \
+        SAVE_ARG(FUNCNAME, 14); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+            SAVE_ARG_HISTORY(FUNCNAME, 0); \
+            SAVE_ARG_HISTORY(FUNCNAME, 1); \
+            SAVE_ARG_HISTORY(FUNCNAME, 2); \
+            SAVE_ARG_HISTORY(FUNCNAME, 3); \
+            SAVE_ARG_HISTORY(FUNCNAME, 4); \
+            SAVE_ARG_HISTORY(FUNCNAME, 5); \
+            SAVE_ARG_HISTORY(FUNCNAME, 6); \
+            SAVE_ARG_HISTORY(FUNCNAME, 7); \
+            SAVE_ARG_HISTORY(FUNCNAME, 8); \
+            SAVE_ARG_HISTORY(FUNCNAME, 9); \
+            SAVE_ARG_HISTORY(FUNCNAME, 10); \
+            SAVE_ARG_HISTORY(FUNCNAME, 11); \
+            SAVE_ARG_HISTORY(FUNCNAME, 12); \
+            SAVE_ARG_HISTORY(FUNCNAME, 13); \
+            SAVE_ARG_HISTORY(FUNCNAME, 14); \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14); \
+            } \
+            else{ \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14); \
+            } \
+        } \
+        if (FUNCNAME##_fake.custom_fake != NULL){  \
+            FUNCNAME##_fake.custom_fake(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14); \
+        } \
+        FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VOID_FUNC15_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE) \
+    DECLARE_FAKE_VOID_FUNC15_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE) \
+    DEFINE_FAKE_VOID_FUNC15_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE) \
+
+
+#define DECLARE_FAKE_VOID_FUNC16_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_ARG(ARG0_TYPE, 0, FUNCNAME) \
+        DECLARE_ARG(ARG1_TYPE, 1, FUNCNAME) \
+        DECLARE_ARG(ARG2_TYPE, 2, FUNCNAME) \
+        DECLARE_ARG(ARG3_TYPE, 3, FUNCNAME) \
+        DECLARE_ARG(ARG4_TYPE, 4, FUNCNAME) \
+        DECLARE_ARG(ARG5_TYPE, 5, FUNCNAME) \
+        DECLARE_ARG(ARG6_TYPE, 6, FUNCNAME) \
+        DECLARE_ARG(ARG7_TYPE, 7, FUNCNAME) \
+        DECLARE_ARG(ARG8_TYPE, 8, FUNCNAME) \
+        DECLARE_ARG(ARG9_TYPE, 9, FUNCNAME) \
+        DECLARE_ARG(ARG10_TYPE, 10, FUNCNAME) \
+        DECLARE_ARG(ARG11_TYPE, 11, FUNCNAME) \
+        DECLARE_ARG(ARG12_TYPE, 12, FUNCNAME) \
+        DECLARE_ARG(ARG13_TYPE, 13, FUNCNAME) \
+        DECLARE_ARG(ARG14_TYPE, 14, FUNCNAME) \
+        DECLARE_ARG(ARG15_TYPE, 15, FUNCNAME) \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, custom_fake, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, *custom_fake_seq, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VOID_FUNC16_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(ARG0_TYPE arg0, ARG1_TYPE arg1, ARG2_TYPE arg2, ARG3_TYPE arg3, ARG4_TYPE arg4, ARG5_TYPE arg5, ARG6_TYPE arg6, ARG7_TYPE arg7, ARG8_TYPE arg8, ARG9_TYPE arg9, ARG10_TYPE arg10, ARG11_TYPE arg11, ARG12_TYPE arg12, ARG13_TYPE arg13, ARG14_TYPE arg14, ARG15_TYPE arg15){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        SAVE_ARG(FUNCNAME, 0); \
+        SAVE_ARG(FUNCNAME, 1); \
+        SAVE_ARG(FUNCNAME, 2); \
+        SAVE_ARG(FUNCNAME, 3); \
+        SAVE_ARG(FUNCNAME, 4); \
+        SAVE_ARG(FUNCNAME, 5); \
+        SAVE_ARG(FUNCNAME, 6); \
+        SAVE_ARG(FUNCNAME, 7); \
+        SAVE_ARG(FUNCNAME, 8); \
+        SAVE_ARG(FUNCNAME, 9); \
+        SAVE_ARG(FUNCNAME, 10); \
+        SAVE_ARG(FUNCNAME, 11); \
+        SAVE_ARG(FUNCNAME, 12); \
+        SAVE_ARG(FUNCNAME, 13); \
+        SAVE_ARG(FUNCNAME, 14); \
+        SAVE_ARG(FUNCNAME, 15); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+            SAVE_ARG_HISTORY(FUNCNAME, 0); \
+            SAVE_ARG_HISTORY(FUNCNAME, 1); \
+            SAVE_ARG_HISTORY(FUNCNAME, 2); \
+            SAVE_ARG_HISTORY(FUNCNAME, 3); \
+            SAVE_ARG_HISTORY(FUNCNAME, 4); \
+            SAVE_ARG_HISTORY(FUNCNAME, 5); \
+            SAVE_ARG_HISTORY(FUNCNAME, 6); \
+            SAVE_ARG_HISTORY(FUNCNAME, 7); \
+            SAVE_ARG_HISTORY(FUNCNAME, 8); \
+            SAVE_ARG_HISTORY(FUNCNAME, 9); \
+            SAVE_ARG_HISTORY(FUNCNAME, 10); \
+            SAVE_ARG_HISTORY(FUNCNAME, 11); \
+            SAVE_ARG_HISTORY(FUNCNAME, 12); \
+            SAVE_ARG_HISTORY(FUNCNAME, 13); \
+            SAVE_ARG_HISTORY(FUNCNAME, 14); \
+            SAVE_ARG_HISTORY(FUNCNAME, 15); \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15); \
+            } \
+            else{ \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15); \
+            } \
+        } \
+        if (FUNCNAME##_fake.custom_fake != NULL){  \
+            FUNCNAME##_fake.custom_fake(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15); \
+        } \
+        FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VOID_FUNC16_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE) \
+    DECLARE_FAKE_VOID_FUNC16_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE) \
+    DEFINE_FAKE_VOID_FUNC16_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE) \
+
+
+#define DECLARE_FAKE_VOID_FUNC17_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_ARG(ARG0_TYPE, 0, FUNCNAME) \
+        DECLARE_ARG(ARG1_TYPE, 1, FUNCNAME) \
+        DECLARE_ARG(ARG2_TYPE, 2, FUNCNAME) \
+        DECLARE_ARG(ARG3_TYPE, 3, FUNCNAME) \
+        DECLARE_ARG(ARG4_TYPE, 4, FUNCNAME) \
+        DECLARE_ARG(ARG5_TYPE, 5, FUNCNAME) \
+        DECLARE_ARG(ARG6_TYPE, 6, FUNCNAME) \
+        DECLARE_ARG(ARG7_TYPE, 7, FUNCNAME) \
+        DECLARE_ARG(ARG8_TYPE, 8, FUNCNAME) \
+        DECLARE_ARG(ARG9_TYPE, 9, FUNCNAME) \
+        DECLARE_ARG(ARG10_TYPE, 10, FUNCNAME) \
+        DECLARE_ARG(ARG11_TYPE, 11, FUNCNAME) \
+        DECLARE_ARG(ARG12_TYPE, 12, FUNCNAME) \
+        DECLARE_ARG(ARG13_TYPE, 13, FUNCNAME) \
+        DECLARE_ARG(ARG14_TYPE, 14, FUNCNAME) \
+        DECLARE_ARG(ARG15_TYPE, 15, FUNCNAME) \
+        DECLARE_ARG(ARG16_TYPE, 16, FUNCNAME) \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, custom_fake, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, *custom_fake_seq, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VOID_FUNC17_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(ARG0_TYPE arg0, ARG1_TYPE arg1, ARG2_TYPE arg2, ARG3_TYPE arg3, ARG4_TYPE arg4, ARG5_TYPE arg5, ARG6_TYPE arg6, ARG7_TYPE arg7, ARG8_TYPE arg8, ARG9_TYPE arg9, ARG10_TYPE arg10, ARG11_TYPE arg11, ARG12_TYPE arg12, ARG13_TYPE arg13, ARG14_TYPE arg14, ARG15_TYPE arg15, ARG16_TYPE arg16){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        SAVE_ARG(FUNCNAME, 0); \
+        SAVE_ARG(FUNCNAME, 1); \
+        SAVE_ARG(FUNCNAME, 2); \
+        SAVE_ARG(FUNCNAME, 3); \
+        SAVE_ARG(FUNCNAME, 4); \
+        SAVE_ARG(FUNCNAME, 5); \
+        SAVE_ARG(FUNCNAME, 6); \
+        SAVE_ARG(FUNCNAME, 7); \
+        SAVE_ARG(FUNCNAME, 8); \
+        SAVE_ARG(FUNCNAME, 9); \
+        SAVE_ARG(FUNCNAME, 10); \
+        SAVE_ARG(FUNCNAME, 11); \
+        SAVE_ARG(FUNCNAME, 12); \
+        SAVE_ARG(FUNCNAME, 13); \
+        SAVE_ARG(FUNCNAME, 14); \
+        SAVE_ARG(FUNCNAME, 15); \
+        SAVE_ARG(FUNCNAME, 16); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+            SAVE_ARG_HISTORY(FUNCNAME, 0); \
+            SAVE_ARG_HISTORY(FUNCNAME, 1); \
+            SAVE_ARG_HISTORY(FUNCNAME, 2); \
+            SAVE_ARG_HISTORY(FUNCNAME, 3); \
+            SAVE_ARG_HISTORY(FUNCNAME, 4); \
+            SAVE_ARG_HISTORY(FUNCNAME, 5); \
+            SAVE_ARG_HISTORY(FUNCNAME, 6); \
+            SAVE_ARG_HISTORY(FUNCNAME, 7); \
+            SAVE_ARG_HISTORY(FUNCNAME, 8); \
+            SAVE_ARG_HISTORY(FUNCNAME, 9); \
+            SAVE_ARG_HISTORY(FUNCNAME, 10); \
+            SAVE_ARG_HISTORY(FUNCNAME, 11); \
+            SAVE_ARG_HISTORY(FUNCNAME, 12); \
+            SAVE_ARG_HISTORY(FUNCNAME, 13); \
+            SAVE_ARG_HISTORY(FUNCNAME, 14); \
+            SAVE_ARG_HISTORY(FUNCNAME, 15); \
+            SAVE_ARG_HISTORY(FUNCNAME, 16); \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16); \
+            } \
+            else{ \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16); \
+            } \
+        } \
+        if (FUNCNAME##_fake.custom_fake != NULL){  \
+            FUNCNAME##_fake.custom_fake(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16); \
+        } \
+        FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VOID_FUNC17_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE) \
+    DECLARE_FAKE_VOID_FUNC17_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE) \
+    DEFINE_FAKE_VOID_FUNC17_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE) \
+
+
+#define DECLARE_FAKE_VOID_FUNC18_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ARG17_TYPE) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_ARG(ARG0_TYPE, 0, FUNCNAME) \
+        DECLARE_ARG(ARG1_TYPE, 1, FUNCNAME) \
+        DECLARE_ARG(ARG2_TYPE, 2, FUNCNAME) \
+        DECLARE_ARG(ARG3_TYPE, 3, FUNCNAME) \
+        DECLARE_ARG(ARG4_TYPE, 4, FUNCNAME) \
+        DECLARE_ARG(ARG5_TYPE, 5, FUNCNAME) \
+        DECLARE_ARG(ARG6_TYPE, 6, FUNCNAME) \
+        DECLARE_ARG(ARG7_TYPE, 7, FUNCNAME) \
+        DECLARE_ARG(ARG8_TYPE, 8, FUNCNAME) \
+        DECLARE_ARG(ARG9_TYPE, 9, FUNCNAME) \
+        DECLARE_ARG(ARG10_TYPE, 10, FUNCNAME) \
+        DECLARE_ARG(ARG11_TYPE, 11, FUNCNAME) \
+        DECLARE_ARG(ARG12_TYPE, 12, FUNCNAME) \
+        DECLARE_ARG(ARG13_TYPE, 13, FUNCNAME) \
+        DECLARE_ARG(ARG14_TYPE, 14, FUNCNAME) \
+        DECLARE_ARG(ARG15_TYPE, 15, FUNCNAME) \
+        DECLARE_ARG(ARG16_TYPE, 16, FUNCNAME) \
+        DECLARE_ARG(ARG17_TYPE, 17, FUNCNAME) \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, custom_fake, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ARG17_TYPE); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, *custom_fake_seq, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ARG17_TYPE); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VOID_FUNC18_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ARG17_TYPE) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(ARG0_TYPE arg0, ARG1_TYPE arg1, ARG2_TYPE arg2, ARG3_TYPE arg3, ARG4_TYPE arg4, ARG5_TYPE arg5, ARG6_TYPE arg6, ARG7_TYPE arg7, ARG8_TYPE arg8, ARG9_TYPE arg9, ARG10_TYPE arg10, ARG11_TYPE arg11, ARG12_TYPE arg12, ARG13_TYPE arg13, ARG14_TYPE arg14, ARG15_TYPE arg15, ARG16_TYPE arg16, ARG17_TYPE arg17){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        SAVE_ARG(FUNCNAME, 0); \
+        SAVE_ARG(FUNCNAME, 1); \
+        SAVE_ARG(FUNCNAME, 2); \
+        SAVE_ARG(FUNCNAME, 3); \
+        SAVE_ARG(FUNCNAME, 4); \
+        SAVE_ARG(FUNCNAME, 5); \
+        SAVE_ARG(FUNCNAME, 6); \
+        SAVE_ARG(FUNCNAME, 7); \
+        SAVE_ARG(FUNCNAME, 8); \
+        SAVE_ARG(FUNCNAME, 9); \
+        SAVE_ARG(FUNCNAME, 10); \
+        SAVE_ARG(FUNCNAME, 11); \
+        SAVE_ARG(FUNCNAME, 12); \
+        SAVE_ARG(FUNCNAME, 13); \
+        SAVE_ARG(FUNCNAME, 14); \
+        SAVE_ARG(FUNCNAME, 15); \
+        SAVE_ARG(FUNCNAME, 16); \
+        SAVE_ARG(FUNCNAME, 17); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+            SAVE_ARG_HISTORY(FUNCNAME, 0); \
+            SAVE_ARG_HISTORY(FUNCNAME, 1); \
+            SAVE_ARG_HISTORY(FUNCNAME, 2); \
+            SAVE_ARG_HISTORY(FUNCNAME, 3); \
+            SAVE_ARG_HISTORY(FUNCNAME, 4); \
+            SAVE_ARG_HISTORY(FUNCNAME, 5); \
+            SAVE_ARG_HISTORY(FUNCNAME, 6); \
+            SAVE_ARG_HISTORY(FUNCNAME, 7); \
+            SAVE_ARG_HISTORY(FUNCNAME, 8); \
+            SAVE_ARG_HISTORY(FUNCNAME, 9); \
+            SAVE_ARG_HISTORY(FUNCNAME, 10); \
+            SAVE_ARG_HISTORY(FUNCNAME, 11); \
+            SAVE_ARG_HISTORY(FUNCNAME, 12); \
+            SAVE_ARG_HISTORY(FUNCNAME, 13); \
+            SAVE_ARG_HISTORY(FUNCNAME, 14); \
+            SAVE_ARG_HISTORY(FUNCNAME, 15); \
+            SAVE_ARG_HISTORY(FUNCNAME, 16); \
+            SAVE_ARG_HISTORY(FUNCNAME, 17); \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17); \
+            } \
+            else{ \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17); \
+            } \
+        } \
+        if (FUNCNAME##_fake.custom_fake != NULL){  \
+            FUNCNAME##_fake.custom_fake(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17); \
+        } \
+        FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VOID_FUNC18_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ARG17_TYPE) \
+    DECLARE_FAKE_VOID_FUNC18_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ARG17_TYPE) \
+    DEFINE_FAKE_VOID_FUNC18_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ARG17_TYPE) \
+
+
+#define DECLARE_FAKE_VOID_FUNC19_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ARG17_TYPE, ARG18_TYPE) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_ARG(ARG0_TYPE, 0, FUNCNAME) \
+        DECLARE_ARG(ARG1_TYPE, 1, FUNCNAME) \
+        DECLARE_ARG(ARG2_TYPE, 2, FUNCNAME) \
+        DECLARE_ARG(ARG3_TYPE, 3, FUNCNAME) \
+        DECLARE_ARG(ARG4_TYPE, 4, FUNCNAME) \
+        DECLARE_ARG(ARG5_TYPE, 5, FUNCNAME) \
+        DECLARE_ARG(ARG6_TYPE, 6, FUNCNAME) \
+        DECLARE_ARG(ARG7_TYPE, 7, FUNCNAME) \
+        DECLARE_ARG(ARG8_TYPE, 8, FUNCNAME) \
+        DECLARE_ARG(ARG9_TYPE, 9, FUNCNAME) \
+        DECLARE_ARG(ARG10_TYPE, 10, FUNCNAME) \
+        DECLARE_ARG(ARG11_TYPE, 11, FUNCNAME) \
+        DECLARE_ARG(ARG12_TYPE, 12, FUNCNAME) \
+        DECLARE_ARG(ARG13_TYPE, 13, FUNCNAME) \
+        DECLARE_ARG(ARG14_TYPE, 14, FUNCNAME) \
+        DECLARE_ARG(ARG15_TYPE, 15, FUNCNAME) \
+        DECLARE_ARG(ARG16_TYPE, 16, FUNCNAME) \
+        DECLARE_ARG(ARG17_TYPE, 17, FUNCNAME) \
+        DECLARE_ARG(ARG18_TYPE, 18, FUNCNAME) \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, custom_fake, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ARG17_TYPE, ARG18_TYPE); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, *custom_fake_seq, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ARG17_TYPE, ARG18_TYPE); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VOID_FUNC19_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ARG17_TYPE, ARG18_TYPE) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(ARG0_TYPE arg0, ARG1_TYPE arg1, ARG2_TYPE arg2, ARG3_TYPE arg3, ARG4_TYPE arg4, ARG5_TYPE arg5, ARG6_TYPE arg6, ARG7_TYPE arg7, ARG8_TYPE arg8, ARG9_TYPE arg9, ARG10_TYPE arg10, ARG11_TYPE arg11, ARG12_TYPE arg12, ARG13_TYPE arg13, ARG14_TYPE arg14, ARG15_TYPE arg15, ARG16_TYPE arg16, ARG17_TYPE arg17, ARG18_TYPE arg18){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        SAVE_ARG(FUNCNAME, 0); \
+        SAVE_ARG(FUNCNAME, 1); \
+        SAVE_ARG(FUNCNAME, 2); \
+        SAVE_ARG(FUNCNAME, 3); \
+        SAVE_ARG(FUNCNAME, 4); \
+        SAVE_ARG(FUNCNAME, 5); \
+        SAVE_ARG(FUNCNAME, 6); \
+        SAVE_ARG(FUNCNAME, 7); \
+        SAVE_ARG(FUNCNAME, 8); \
+        SAVE_ARG(FUNCNAME, 9); \
+        SAVE_ARG(FUNCNAME, 10); \
+        SAVE_ARG(FUNCNAME, 11); \
+        SAVE_ARG(FUNCNAME, 12); \
+        SAVE_ARG(FUNCNAME, 13); \
+        SAVE_ARG(FUNCNAME, 14); \
+        SAVE_ARG(FUNCNAME, 15); \
+        SAVE_ARG(FUNCNAME, 16); \
+        SAVE_ARG(FUNCNAME, 17); \
+        SAVE_ARG(FUNCNAME, 18); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+            SAVE_ARG_HISTORY(FUNCNAME, 0); \
+            SAVE_ARG_HISTORY(FUNCNAME, 1); \
+            SAVE_ARG_HISTORY(FUNCNAME, 2); \
+            SAVE_ARG_HISTORY(FUNCNAME, 3); \
+            SAVE_ARG_HISTORY(FUNCNAME, 4); \
+            SAVE_ARG_HISTORY(FUNCNAME, 5); \
+            SAVE_ARG_HISTORY(FUNCNAME, 6); \
+            SAVE_ARG_HISTORY(FUNCNAME, 7); \
+            SAVE_ARG_HISTORY(FUNCNAME, 8); \
+            SAVE_ARG_HISTORY(FUNCNAME, 9); \
+            SAVE_ARG_HISTORY(FUNCNAME, 10); \
+            SAVE_ARG_HISTORY(FUNCNAME, 11); \
+            SAVE_ARG_HISTORY(FUNCNAME, 12); \
+            SAVE_ARG_HISTORY(FUNCNAME, 13); \
+            SAVE_ARG_HISTORY(FUNCNAME, 14); \
+            SAVE_ARG_HISTORY(FUNCNAME, 15); \
+            SAVE_ARG_HISTORY(FUNCNAME, 16); \
+            SAVE_ARG_HISTORY(FUNCNAME, 17); \
+            SAVE_ARG_HISTORY(FUNCNAME, 18); \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18); \
+            } \
+            else{ \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18); \
+            } \
+        } \
+        if (FUNCNAME##_fake.custom_fake != NULL){  \
+            FUNCNAME##_fake.custom_fake(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18); \
+        } \
+        FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VOID_FUNC19_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ARG17_TYPE, ARG18_TYPE) \
+    DECLARE_FAKE_VOID_FUNC19_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ARG17_TYPE, ARG18_TYPE) \
+    DEFINE_FAKE_VOID_FUNC19_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ARG17_TYPE, ARG18_TYPE) \
+
+
+#define DECLARE_FAKE_VOID_FUNC20_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ARG17_TYPE, ARG18_TYPE, ARG19_TYPE) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_ARG(ARG0_TYPE, 0, FUNCNAME) \
+        DECLARE_ARG(ARG1_TYPE, 1, FUNCNAME) \
+        DECLARE_ARG(ARG2_TYPE, 2, FUNCNAME) \
+        DECLARE_ARG(ARG3_TYPE, 3, FUNCNAME) \
+        DECLARE_ARG(ARG4_TYPE, 4, FUNCNAME) \
+        DECLARE_ARG(ARG5_TYPE, 5, FUNCNAME) \
+        DECLARE_ARG(ARG6_TYPE, 6, FUNCNAME) \
+        DECLARE_ARG(ARG7_TYPE, 7, FUNCNAME) \
+        DECLARE_ARG(ARG8_TYPE, 8, FUNCNAME) \
+        DECLARE_ARG(ARG9_TYPE, 9, FUNCNAME) \
+        DECLARE_ARG(ARG10_TYPE, 10, FUNCNAME) \
+        DECLARE_ARG(ARG11_TYPE, 11, FUNCNAME) \
+        DECLARE_ARG(ARG12_TYPE, 12, FUNCNAME) \
+        DECLARE_ARG(ARG13_TYPE, 13, FUNCNAME) \
+        DECLARE_ARG(ARG14_TYPE, 14, FUNCNAME) \
+        DECLARE_ARG(ARG15_TYPE, 15, FUNCNAME) \
+        DECLARE_ARG(ARG16_TYPE, 16, FUNCNAME) \
+        DECLARE_ARG(ARG17_TYPE, 17, FUNCNAME) \
+        DECLARE_ARG(ARG18_TYPE, 18, FUNCNAME) \
+        DECLARE_ARG(ARG19_TYPE, 19, FUNCNAME) \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, custom_fake, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ARG17_TYPE, ARG18_TYPE, ARG19_TYPE); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, *custom_fake_seq, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ARG17_TYPE, ARG18_TYPE, ARG19_TYPE); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VOID_FUNC20_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ARG17_TYPE, ARG18_TYPE, ARG19_TYPE) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(ARG0_TYPE arg0, ARG1_TYPE arg1, ARG2_TYPE arg2, ARG3_TYPE arg3, ARG4_TYPE arg4, ARG5_TYPE arg5, ARG6_TYPE arg6, ARG7_TYPE arg7, ARG8_TYPE arg8, ARG9_TYPE arg9, ARG10_TYPE arg10, ARG11_TYPE arg11, ARG12_TYPE arg12, ARG13_TYPE arg13, ARG14_TYPE arg14, ARG15_TYPE arg15, ARG16_TYPE arg16, ARG17_TYPE arg17, ARG18_TYPE arg18, ARG19_TYPE arg19){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        SAVE_ARG(FUNCNAME, 0); \
+        SAVE_ARG(FUNCNAME, 1); \
+        SAVE_ARG(FUNCNAME, 2); \
+        SAVE_ARG(FUNCNAME, 3); \
+        SAVE_ARG(FUNCNAME, 4); \
+        SAVE_ARG(FUNCNAME, 5); \
+        SAVE_ARG(FUNCNAME, 6); \
+        SAVE_ARG(FUNCNAME, 7); \
+        SAVE_ARG(FUNCNAME, 8); \
+        SAVE_ARG(FUNCNAME, 9); \
+        SAVE_ARG(FUNCNAME, 10); \
+        SAVE_ARG(FUNCNAME, 11); \
+        SAVE_ARG(FUNCNAME, 12); \
+        SAVE_ARG(FUNCNAME, 13); \
+        SAVE_ARG(FUNCNAME, 14); \
+        SAVE_ARG(FUNCNAME, 15); \
+        SAVE_ARG(FUNCNAME, 16); \
+        SAVE_ARG(FUNCNAME, 17); \
+        SAVE_ARG(FUNCNAME, 18); \
+        SAVE_ARG(FUNCNAME, 19); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+            SAVE_ARG_HISTORY(FUNCNAME, 0); \
+            SAVE_ARG_HISTORY(FUNCNAME, 1); \
+            SAVE_ARG_HISTORY(FUNCNAME, 2); \
+            SAVE_ARG_HISTORY(FUNCNAME, 3); \
+            SAVE_ARG_HISTORY(FUNCNAME, 4); \
+            SAVE_ARG_HISTORY(FUNCNAME, 5); \
+            SAVE_ARG_HISTORY(FUNCNAME, 6); \
+            SAVE_ARG_HISTORY(FUNCNAME, 7); \
+            SAVE_ARG_HISTORY(FUNCNAME, 8); \
+            SAVE_ARG_HISTORY(FUNCNAME, 9); \
+            SAVE_ARG_HISTORY(FUNCNAME, 10); \
+            SAVE_ARG_HISTORY(FUNCNAME, 11); \
+            SAVE_ARG_HISTORY(FUNCNAME, 12); \
+            SAVE_ARG_HISTORY(FUNCNAME, 13); \
+            SAVE_ARG_HISTORY(FUNCNAME, 14); \
+            SAVE_ARG_HISTORY(FUNCNAME, 15); \
+            SAVE_ARG_HISTORY(FUNCNAME, 16); \
+            SAVE_ARG_HISTORY(FUNCNAME, 17); \
+            SAVE_ARG_HISTORY(FUNCNAME, 18); \
+            SAVE_ARG_HISTORY(FUNCNAME, 19); \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19); \
+            } \
+            else{ \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19); \
+            } \
+        } \
+        if (FUNCNAME##_fake.custom_fake != NULL){  \
+            FUNCNAME##_fake.custom_fake(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19); \
+        } \
+        FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VOID_FUNC20_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ARG17_TYPE, ARG18_TYPE, ARG19_TYPE) \
+    DECLARE_FAKE_VOID_FUNC20_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ARG17_TYPE, ARG18_TYPE, ARG19_TYPE) \
+    DEFINE_FAKE_VOID_FUNC20_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ARG17_TYPE, ARG18_TYPE, ARG19_TYPE) \
+
+
+#define DECLARE_FAKE_VALUE_FUNC0_TS(RETURN_TYPE, FUNCNAME) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_VALUE_FUNCTION_VARIABLES(RETURN_TYPE) \
+        DECLARE_RETURN_VALUE_HISTORY(RETURN_TYPE) \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, custom_fake, void); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, *custom_fake_seq, void); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VALUE_FUNC0_TS(RETURN_TYPE, FUNCNAME) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    RETURN_TYPE FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(void){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+            else{ \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+        } \
+        if (FUNCNAME##_fake.custom_fake != NULL){  \
+            RETURN_TYPE ret = FUNCNAME##_fake.custom_fake(); \
+            SAVE_RET_HISTORY(FUNCNAME, ret); \
+            FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+            return ret; \
+        } \
+        RETURN_FAKE_RESULT_TS(FUNCNAME) \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VALUE_FUNC0_TS(RETURN_TYPE, FUNCNAME) \
+    DECLARE_FAKE_VALUE_FUNC0_TS(RETURN_TYPE, FUNCNAME) \
+    DEFINE_FAKE_VALUE_FUNC0_TS(RETURN_TYPE, FUNCNAME) \
+
+
+#define DECLARE_FAKE_VALUE_FUNC1_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_ARG(ARG0_TYPE, 0, FUNCNAME) \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_VALUE_FUNCTION_VARIABLES(RETURN_TYPE) \
+        DECLARE_RETURN_VALUE_HISTORY(RETURN_TYPE) \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, custom_fake, ARG0_TYPE); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, *custom_fake_seq, ARG0_TYPE); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VALUE_FUNC1_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    RETURN_TYPE FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(ARG0_TYPE arg0){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        SAVE_ARG(FUNCNAME, 0); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+            SAVE_ARG_HISTORY(FUNCNAME, 0); \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](arg0); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+            else{ \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](arg0); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+        } \
+        if (FUNCNAME##_fake.custom_fake != NULL){  \
+            RETURN_TYPE ret = FUNCNAME##_fake.custom_fake(arg0); \
+            SAVE_RET_HISTORY(FUNCNAME, ret); \
+            FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+            return ret; \
+        } \
+        RETURN_FAKE_RESULT_TS(FUNCNAME) \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VALUE_FUNC1_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE) \
+    DECLARE_FAKE_VALUE_FUNC1_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE) \
+    DEFINE_FAKE_VALUE_FUNC1_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE) \
+
+
+#define DECLARE_FAKE_VALUE_FUNC2_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_ARG(ARG0_TYPE, 0, FUNCNAME) \
+        DECLARE_ARG(ARG1_TYPE, 1, FUNCNAME) \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_VALUE_FUNCTION_VARIABLES(RETURN_TYPE) \
+        DECLARE_RETURN_VALUE_HISTORY(RETURN_TYPE) \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, custom_fake, ARG0_TYPE, ARG1_TYPE); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, *custom_fake_seq, ARG0_TYPE, ARG1_TYPE); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VALUE_FUNC2_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    RETURN_TYPE FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(ARG0_TYPE arg0, ARG1_TYPE arg1){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        SAVE_ARG(FUNCNAME, 0); \
+        SAVE_ARG(FUNCNAME, 1); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+            SAVE_ARG_HISTORY(FUNCNAME, 0); \
+            SAVE_ARG_HISTORY(FUNCNAME, 1); \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](arg0, arg1); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+            else{ \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](arg0, arg1); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+        } \
+        if (FUNCNAME##_fake.custom_fake != NULL){  \
+            RETURN_TYPE ret = FUNCNAME##_fake.custom_fake(arg0, arg1); \
+            SAVE_RET_HISTORY(FUNCNAME, ret); \
+            FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+            return ret; \
+        } \
+        RETURN_FAKE_RESULT_TS(FUNCNAME) \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VALUE_FUNC2_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE) \
+    DECLARE_FAKE_VALUE_FUNC2_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE) \
+    DEFINE_FAKE_VALUE_FUNC2_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE) \
+
+
+#define DECLARE_FAKE_VALUE_FUNC3_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_ARG(ARG0_TYPE, 0, FUNCNAME) \
+        DECLARE_ARG(ARG1_TYPE, 1, FUNCNAME) \
+        DECLARE_ARG(ARG2_TYPE, 2, FUNCNAME) \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_VALUE_FUNCTION_VARIABLES(RETURN_TYPE) \
+        DECLARE_RETURN_VALUE_HISTORY(RETURN_TYPE) \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, custom_fake, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, *custom_fake_seq, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VALUE_FUNC3_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    RETURN_TYPE FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(ARG0_TYPE arg0, ARG1_TYPE arg1, ARG2_TYPE arg2){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        SAVE_ARG(FUNCNAME, 0); \
+        SAVE_ARG(FUNCNAME, 1); \
+        SAVE_ARG(FUNCNAME, 2); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+            SAVE_ARG_HISTORY(FUNCNAME, 0); \
+            SAVE_ARG_HISTORY(FUNCNAME, 1); \
+            SAVE_ARG_HISTORY(FUNCNAME, 2); \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](arg0, arg1, arg2); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+            else{ \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](arg0, arg1, arg2); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+        } \
+        if (FUNCNAME##_fake.custom_fake != NULL){  \
+            RETURN_TYPE ret = FUNCNAME##_fake.custom_fake(arg0, arg1, arg2); \
+            SAVE_RET_HISTORY(FUNCNAME, ret); \
+            FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+            return ret; \
+        } \
+        RETURN_FAKE_RESULT_TS(FUNCNAME) \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VALUE_FUNC3_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE) \
+    DECLARE_FAKE_VALUE_FUNC3_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE) \
+    DEFINE_FAKE_VALUE_FUNC3_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE) \
+
+
+#define DECLARE_FAKE_VALUE_FUNC4_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_ARG(ARG0_TYPE, 0, FUNCNAME) \
+        DECLARE_ARG(ARG1_TYPE, 1, FUNCNAME) \
+        DECLARE_ARG(ARG2_TYPE, 2, FUNCNAME) \
+        DECLARE_ARG(ARG3_TYPE, 3, FUNCNAME) \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_VALUE_FUNCTION_VARIABLES(RETURN_TYPE) \
+        DECLARE_RETURN_VALUE_HISTORY(RETURN_TYPE) \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, custom_fake, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, *custom_fake_seq, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VALUE_FUNC4_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    RETURN_TYPE FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(ARG0_TYPE arg0, ARG1_TYPE arg1, ARG2_TYPE arg2, ARG3_TYPE arg3){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        SAVE_ARG(FUNCNAME, 0); \
+        SAVE_ARG(FUNCNAME, 1); \
+        SAVE_ARG(FUNCNAME, 2); \
+        SAVE_ARG(FUNCNAME, 3); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+            SAVE_ARG_HISTORY(FUNCNAME, 0); \
+            SAVE_ARG_HISTORY(FUNCNAME, 1); \
+            SAVE_ARG_HISTORY(FUNCNAME, 2); \
+            SAVE_ARG_HISTORY(FUNCNAME, 3); \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](arg0, arg1, arg2, arg3); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+            else{ \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](arg0, arg1, arg2, arg3); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+        } \
+        if (FUNCNAME##_fake.custom_fake != NULL){  \
+            RETURN_TYPE ret = FUNCNAME##_fake.custom_fake(arg0, arg1, arg2, arg3); \
+            SAVE_RET_HISTORY(FUNCNAME, ret); \
+            FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+            return ret; \
+        } \
+        RETURN_FAKE_RESULT_TS(FUNCNAME) \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VALUE_FUNC4_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE) \
+    DECLARE_FAKE_VALUE_FUNC4_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE) \
+    DEFINE_FAKE_VALUE_FUNC4_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE) \
+
+
+#define DECLARE_FAKE_VALUE_FUNC5_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_ARG(ARG0_TYPE, 0, FUNCNAME) \
+        DECLARE_ARG(ARG1_TYPE, 1, FUNCNAME) \
+        DECLARE_ARG(ARG2_TYPE, 2, FUNCNAME) \
+        DECLARE_ARG(ARG3_TYPE, 3, FUNCNAME) \
+        DECLARE_ARG(ARG4_TYPE, 4, FUNCNAME) \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_VALUE_FUNCTION_VARIABLES(RETURN_TYPE) \
+        DECLARE_RETURN_VALUE_HISTORY(RETURN_TYPE) \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, custom_fake, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, *custom_fake_seq, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VALUE_FUNC5_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    RETURN_TYPE FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(ARG0_TYPE arg0, ARG1_TYPE arg1, ARG2_TYPE arg2, ARG3_TYPE arg3, ARG4_TYPE arg4){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        SAVE_ARG(FUNCNAME, 0); \
+        SAVE_ARG(FUNCNAME, 1); \
+        SAVE_ARG(FUNCNAME, 2); \
+        SAVE_ARG(FUNCNAME, 3); \
+        SAVE_ARG(FUNCNAME, 4); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+            SAVE_ARG_HISTORY(FUNCNAME, 0); \
+            SAVE_ARG_HISTORY(FUNCNAME, 1); \
+            SAVE_ARG_HISTORY(FUNCNAME, 2); \
+            SAVE_ARG_HISTORY(FUNCNAME, 3); \
+            SAVE_ARG_HISTORY(FUNCNAME, 4); \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](arg0, arg1, arg2, arg3, arg4); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+            else{ \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](arg0, arg1, arg2, arg3, arg4); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+        } \
+        if (FUNCNAME##_fake.custom_fake != NULL){  \
+            RETURN_TYPE ret = FUNCNAME##_fake.custom_fake(arg0, arg1, arg2, arg3, arg4); \
+            SAVE_RET_HISTORY(FUNCNAME, ret); \
+            FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+            return ret; \
+        } \
+        RETURN_FAKE_RESULT_TS(FUNCNAME) \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VALUE_FUNC5_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE) \
+    DECLARE_FAKE_VALUE_FUNC5_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE) \
+    DEFINE_FAKE_VALUE_FUNC5_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE) \
+
+
+#define DECLARE_FAKE_VALUE_FUNC6_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_ARG(ARG0_TYPE, 0, FUNCNAME) \
+        DECLARE_ARG(ARG1_TYPE, 1, FUNCNAME) \
+        DECLARE_ARG(ARG2_TYPE, 2, FUNCNAME) \
+        DECLARE_ARG(ARG3_TYPE, 3, FUNCNAME) \
+        DECLARE_ARG(ARG4_TYPE, 4, FUNCNAME) \
+        DECLARE_ARG(ARG5_TYPE, 5, FUNCNAME) \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_VALUE_FUNCTION_VARIABLES(RETURN_TYPE) \
+        DECLARE_RETURN_VALUE_HISTORY(RETURN_TYPE) \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, custom_fake, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, *custom_fake_seq, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VALUE_FUNC6_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    RETURN_TYPE FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(ARG0_TYPE arg0, ARG1_TYPE arg1, ARG2_TYPE arg2, ARG3_TYPE arg3, ARG4_TYPE arg4, ARG5_TYPE arg5){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        SAVE_ARG(FUNCNAME, 0); \
+        SAVE_ARG(FUNCNAME, 1); \
+        SAVE_ARG(FUNCNAME, 2); \
+        SAVE_ARG(FUNCNAME, 3); \
+        SAVE_ARG(FUNCNAME, 4); \
+        SAVE_ARG(FUNCNAME, 5); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+            SAVE_ARG_HISTORY(FUNCNAME, 0); \
+            SAVE_ARG_HISTORY(FUNCNAME, 1); \
+            SAVE_ARG_HISTORY(FUNCNAME, 2); \
+            SAVE_ARG_HISTORY(FUNCNAME, 3); \
+            SAVE_ARG_HISTORY(FUNCNAME, 4); \
+            SAVE_ARG_HISTORY(FUNCNAME, 5); \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](arg0, arg1, arg2, arg3, arg4, arg5); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+            else{ \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](arg0, arg1, arg2, arg3, arg4, arg5); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+        } \
+        if (FUNCNAME##_fake.custom_fake != NULL){  \
+            RETURN_TYPE ret = FUNCNAME##_fake.custom_fake(arg0, arg1, arg2, arg3, arg4, arg5); \
+            SAVE_RET_HISTORY(FUNCNAME, ret); \
+            FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+            return ret; \
+        } \
+        RETURN_FAKE_RESULT_TS(FUNCNAME) \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VALUE_FUNC6_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE) \
+    DECLARE_FAKE_VALUE_FUNC6_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE) \
+    DEFINE_FAKE_VALUE_FUNC6_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE) \
+
+
+#define DECLARE_FAKE_VALUE_FUNC7_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_ARG(ARG0_TYPE, 0, FUNCNAME) \
+        DECLARE_ARG(ARG1_TYPE, 1, FUNCNAME) \
+        DECLARE_ARG(ARG2_TYPE, 2, FUNCNAME) \
+        DECLARE_ARG(ARG3_TYPE, 3, FUNCNAME) \
+        DECLARE_ARG(ARG4_TYPE, 4, FUNCNAME) \
+        DECLARE_ARG(ARG5_TYPE, 5, FUNCNAME) \
+        DECLARE_ARG(ARG6_TYPE, 6, FUNCNAME) \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_VALUE_FUNCTION_VARIABLES(RETURN_TYPE) \
+        DECLARE_RETURN_VALUE_HISTORY(RETURN_TYPE) \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, custom_fake, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, *custom_fake_seq, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VALUE_FUNC7_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    RETURN_TYPE FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(ARG0_TYPE arg0, ARG1_TYPE arg1, ARG2_TYPE arg2, ARG3_TYPE arg3, ARG4_TYPE arg4, ARG5_TYPE arg5, ARG6_TYPE arg6){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        SAVE_ARG(FUNCNAME, 0); \
+        SAVE_ARG(FUNCNAME, 1); \
+        SAVE_ARG(FUNCNAME, 2); \
+        SAVE_ARG(FUNCNAME, 3); \
+        SAVE_ARG(FUNCNAME, 4); \
+        SAVE_ARG(FUNCNAME, 5); \
+        SAVE_ARG(FUNCNAME, 6); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+            SAVE_ARG_HISTORY(FUNCNAME, 0); \
+            SAVE_ARG_HISTORY(FUNCNAME, 1); \
+            SAVE_ARG_HISTORY(FUNCNAME, 2); \
+            SAVE_ARG_HISTORY(FUNCNAME, 3); \
+            SAVE_ARG_HISTORY(FUNCNAME, 4); \
+            SAVE_ARG_HISTORY(FUNCNAME, 5); \
+            SAVE_ARG_HISTORY(FUNCNAME, 6); \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](arg0, arg1, arg2, arg3, arg4, arg5, arg6); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+            else{ \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](arg0, arg1, arg2, arg3, arg4, arg5, arg6); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+        } \
+        if (FUNCNAME##_fake.custom_fake != NULL){  \
+            RETURN_TYPE ret = FUNCNAME##_fake.custom_fake(arg0, arg1, arg2, arg3, arg4, arg5, arg6); \
+            SAVE_RET_HISTORY(FUNCNAME, ret); \
+            FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+            return ret; \
+        } \
+        RETURN_FAKE_RESULT_TS(FUNCNAME) \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VALUE_FUNC7_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE) \
+    DECLARE_FAKE_VALUE_FUNC7_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE) \
+    DEFINE_FAKE_VALUE_FUNC7_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE) \
+
+
+#define DECLARE_FAKE_VALUE_FUNC8_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_ARG(ARG0_TYPE, 0, FUNCNAME) \
+        DECLARE_ARG(ARG1_TYPE, 1, FUNCNAME) \
+        DECLARE_ARG(ARG2_TYPE, 2, FUNCNAME) \
+        DECLARE_ARG(ARG3_TYPE, 3, FUNCNAME) \
+        DECLARE_ARG(ARG4_TYPE, 4, FUNCNAME) \
+        DECLARE_ARG(ARG5_TYPE, 5, FUNCNAME) \
+        DECLARE_ARG(ARG6_TYPE, 6, FUNCNAME) \
+        DECLARE_ARG(ARG7_TYPE, 7, FUNCNAME) \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_VALUE_FUNCTION_VARIABLES(RETURN_TYPE) \
+        DECLARE_RETURN_VALUE_HISTORY(RETURN_TYPE) \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, custom_fake, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, *custom_fake_seq, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VALUE_FUNC8_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    RETURN_TYPE FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(ARG0_TYPE arg0, ARG1_TYPE arg1, ARG2_TYPE arg2, ARG3_TYPE arg3, ARG4_TYPE arg4, ARG5_TYPE arg5, ARG6_TYPE arg6, ARG7_TYPE arg7){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        SAVE_ARG(FUNCNAME, 0); \
+        SAVE_ARG(FUNCNAME, 1); \
+        SAVE_ARG(FUNCNAME, 2); \
+        SAVE_ARG(FUNCNAME, 3); \
+        SAVE_ARG(FUNCNAME, 4); \
+        SAVE_ARG(FUNCNAME, 5); \
+        SAVE_ARG(FUNCNAME, 6); \
+        SAVE_ARG(FUNCNAME, 7); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+            SAVE_ARG_HISTORY(FUNCNAME, 0); \
+            SAVE_ARG_HISTORY(FUNCNAME, 1); \
+            SAVE_ARG_HISTORY(FUNCNAME, 2); \
+            SAVE_ARG_HISTORY(FUNCNAME, 3); \
+            SAVE_ARG_HISTORY(FUNCNAME, 4); \
+            SAVE_ARG_HISTORY(FUNCNAME, 5); \
+            SAVE_ARG_HISTORY(FUNCNAME, 6); \
+            SAVE_ARG_HISTORY(FUNCNAME, 7); \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+            else{ \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+        } \
+        if (FUNCNAME##_fake.custom_fake != NULL){  \
+            RETURN_TYPE ret = FUNCNAME##_fake.custom_fake(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7); \
+            SAVE_RET_HISTORY(FUNCNAME, ret); \
+            FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+            return ret; \
+        } \
+        RETURN_FAKE_RESULT_TS(FUNCNAME) \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VALUE_FUNC8_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE) \
+    DECLARE_FAKE_VALUE_FUNC8_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE) \
+    DEFINE_FAKE_VALUE_FUNC8_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE) \
+
+
+#define DECLARE_FAKE_VALUE_FUNC9_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_ARG(ARG0_TYPE, 0, FUNCNAME) \
+        DECLARE_ARG(ARG1_TYPE, 1, FUNCNAME) \
+        DECLARE_ARG(ARG2_TYPE, 2, FUNCNAME) \
+        DECLARE_ARG(ARG3_TYPE, 3, FUNCNAME) \
+        DECLARE_ARG(ARG4_TYPE, 4, FUNCNAME) \
+        DECLARE_ARG(ARG5_TYPE, 5, FUNCNAME) \
+        DECLARE_ARG(ARG6_TYPE, 6, FUNCNAME) \
+        DECLARE_ARG(ARG7_TYPE, 7, FUNCNAME) \
+        DECLARE_ARG(ARG8_TYPE, 8, FUNCNAME) \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_VALUE_FUNCTION_VARIABLES(RETURN_TYPE) \
+        DECLARE_RETURN_VALUE_HISTORY(RETURN_TYPE) \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, custom_fake, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, *custom_fake_seq, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VALUE_FUNC9_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    RETURN_TYPE FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(ARG0_TYPE arg0, ARG1_TYPE arg1, ARG2_TYPE arg2, ARG3_TYPE arg3, ARG4_TYPE arg4, ARG5_TYPE arg5, ARG6_TYPE arg6, ARG7_TYPE arg7, ARG8_TYPE arg8){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        SAVE_ARG(FUNCNAME, 0); \
+        SAVE_ARG(FUNCNAME, 1); \
+        SAVE_ARG(FUNCNAME, 2); \
+        SAVE_ARG(FUNCNAME, 3); \
+        SAVE_ARG(FUNCNAME, 4); \
+        SAVE_ARG(FUNCNAME, 5); \
+        SAVE_ARG(FUNCNAME, 6); \
+        SAVE_ARG(FUNCNAME, 7); \
+        SAVE_ARG(FUNCNAME, 8); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+            SAVE_ARG_HISTORY(FUNCNAME, 0); \
+            SAVE_ARG_HISTORY(FUNCNAME, 1); \
+            SAVE_ARG_HISTORY(FUNCNAME, 2); \
+            SAVE_ARG_HISTORY(FUNCNAME, 3); \
+            SAVE_ARG_HISTORY(FUNCNAME, 4); \
+            SAVE_ARG_HISTORY(FUNCNAME, 5); \
+            SAVE_ARG_HISTORY(FUNCNAME, 6); \
+            SAVE_ARG_HISTORY(FUNCNAME, 7); \
+            SAVE_ARG_HISTORY(FUNCNAME, 8); \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+            else{ \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+        } \
+        if (FUNCNAME##_fake.custom_fake != NULL){  \
+            RETURN_TYPE ret = FUNCNAME##_fake.custom_fake(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8); \
+            SAVE_RET_HISTORY(FUNCNAME, ret); \
+            FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+            return ret; \
+        } \
+        RETURN_FAKE_RESULT_TS(FUNCNAME) \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VALUE_FUNC9_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE) \
+    DECLARE_FAKE_VALUE_FUNC9_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE) \
+    DEFINE_FAKE_VALUE_FUNC9_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE) \
+
+
+#define DECLARE_FAKE_VALUE_FUNC10_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_ARG(ARG0_TYPE, 0, FUNCNAME) \
+        DECLARE_ARG(ARG1_TYPE, 1, FUNCNAME) \
+        DECLARE_ARG(ARG2_TYPE, 2, FUNCNAME) \
+        DECLARE_ARG(ARG3_TYPE, 3, FUNCNAME) \
+        DECLARE_ARG(ARG4_TYPE, 4, FUNCNAME) \
+        DECLARE_ARG(ARG5_TYPE, 5, FUNCNAME) \
+        DECLARE_ARG(ARG6_TYPE, 6, FUNCNAME) \
+        DECLARE_ARG(ARG7_TYPE, 7, FUNCNAME) \
+        DECLARE_ARG(ARG8_TYPE, 8, FUNCNAME) \
+        DECLARE_ARG(ARG9_TYPE, 9, FUNCNAME) \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_VALUE_FUNCTION_VARIABLES(RETURN_TYPE) \
+        DECLARE_RETURN_VALUE_HISTORY(RETURN_TYPE) \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, custom_fake, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, *custom_fake_seq, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VALUE_FUNC10_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    RETURN_TYPE FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(ARG0_TYPE arg0, ARG1_TYPE arg1, ARG2_TYPE arg2, ARG3_TYPE arg3, ARG4_TYPE arg4, ARG5_TYPE arg5, ARG6_TYPE arg6, ARG7_TYPE arg7, ARG8_TYPE arg8, ARG9_TYPE arg9){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        SAVE_ARG(FUNCNAME, 0); \
+        SAVE_ARG(FUNCNAME, 1); \
+        SAVE_ARG(FUNCNAME, 2); \
+        SAVE_ARG(FUNCNAME, 3); \
+        SAVE_ARG(FUNCNAME, 4); \
+        SAVE_ARG(FUNCNAME, 5); \
+        SAVE_ARG(FUNCNAME, 6); \
+        SAVE_ARG(FUNCNAME, 7); \
+        SAVE_ARG(FUNCNAME, 8); \
+        SAVE_ARG(FUNCNAME, 9); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+            SAVE_ARG_HISTORY(FUNCNAME, 0); \
+            SAVE_ARG_HISTORY(FUNCNAME, 1); \
+            SAVE_ARG_HISTORY(FUNCNAME, 2); \
+            SAVE_ARG_HISTORY(FUNCNAME, 3); \
+            SAVE_ARG_HISTORY(FUNCNAME, 4); \
+            SAVE_ARG_HISTORY(FUNCNAME, 5); \
+            SAVE_ARG_HISTORY(FUNCNAME, 6); \
+            SAVE_ARG_HISTORY(FUNCNAME, 7); \
+            SAVE_ARG_HISTORY(FUNCNAME, 8); \
+            SAVE_ARG_HISTORY(FUNCNAME, 9); \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+            else{ \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+        } \
+        if (FUNCNAME##_fake.custom_fake != NULL){  \
+            RETURN_TYPE ret = FUNCNAME##_fake.custom_fake(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9); \
+            SAVE_RET_HISTORY(FUNCNAME, ret); \
+            FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+            return ret; \
+        } \
+        RETURN_FAKE_RESULT_TS(FUNCNAME) \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VALUE_FUNC10_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE) \
+    DECLARE_FAKE_VALUE_FUNC10_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE) \
+    DEFINE_FAKE_VALUE_FUNC10_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE) \
+
+
+#define DECLARE_FAKE_VALUE_FUNC11_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_ARG(ARG0_TYPE, 0, FUNCNAME) \
+        DECLARE_ARG(ARG1_TYPE, 1, FUNCNAME) \
+        DECLARE_ARG(ARG2_TYPE, 2, FUNCNAME) \
+        DECLARE_ARG(ARG3_TYPE, 3, FUNCNAME) \
+        DECLARE_ARG(ARG4_TYPE, 4, FUNCNAME) \
+        DECLARE_ARG(ARG5_TYPE, 5, FUNCNAME) \
+        DECLARE_ARG(ARG6_TYPE, 6, FUNCNAME) \
+        DECLARE_ARG(ARG7_TYPE, 7, FUNCNAME) \
+        DECLARE_ARG(ARG8_TYPE, 8, FUNCNAME) \
+        DECLARE_ARG(ARG9_TYPE, 9, FUNCNAME) \
+        DECLARE_ARG(ARG10_TYPE, 10, FUNCNAME) \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_VALUE_FUNCTION_VARIABLES(RETURN_TYPE) \
+        DECLARE_RETURN_VALUE_HISTORY(RETURN_TYPE) \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, custom_fake, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, *custom_fake_seq, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VALUE_FUNC11_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    RETURN_TYPE FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(ARG0_TYPE arg0, ARG1_TYPE arg1, ARG2_TYPE arg2, ARG3_TYPE arg3, ARG4_TYPE arg4, ARG5_TYPE arg5, ARG6_TYPE arg6, ARG7_TYPE arg7, ARG8_TYPE arg8, ARG9_TYPE arg9, ARG10_TYPE arg10){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        SAVE_ARG(FUNCNAME, 0); \
+        SAVE_ARG(FUNCNAME, 1); \
+        SAVE_ARG(FUNCNAME, 2); \
+        SAVE_ARG(FUNCNAME, 3); \
+        SAVE_ARG(FUNCNAME, 4); \
+        SAVE_ARG(FUNCNAME, 5); \
+        SAVE_ARG(FUNCNAME, 6); \
+        SAVE_ARG(FUNCNAME, 7); \
+        SAVE_ARG(FUNCNAME, 8); \
+        SAVE_ARG(FUNCNAME, 9); \
+        SAVE_ARG(FUNCNAME, 10); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+            SAVE_ARG_HISTORY(FUNCNAME, 0); \
+            SAVE_ARG_HISTORY(FUNCNAME, 1); \
+            SAVE_ARG_HISTORY(FUNCNAME, 2); \
+            SAVE_ARG_HISTORY(FUNCNAME, 3); \
+            SAVE_ARG_HISTORY(FUNCNAME, 4); \
+            SAVE_ARG_HISTORY(FUNCNAME, 5); \
+            SAVE_ARG_HISTORY(FUNCNAME, 6); \
+            SAVE_ARG_HISTORY(FUNCNAME, 7); \
+            SAVE_ARG_HISTORY(FUNCNAME, 8); \
+            SAVE_ARG_HISTORY(FUNCNAME, 9); \
+            SAVE_ARG_HISTORY(FUNCNAME, 10); \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+            else{ \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+        } \
+        if (FUNCNAME##_fake.custom_fake != NULL){  \
+            RETURN_TYPE ret = FUNCNAME##_fake.custom_fake(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10); \
+            SAVE_RET_HISTORY(FUNCNAME, ret); \
+            FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+            return ret; \
+        } \
+        RETURN_FAKE_RESULT_TS(FUNCNAME) \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VALUE_FUNC11_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE) \
+    DECLARE_FAKE_VALUE_FUNC11_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE) \
+    DEFINE_FAKE_VALUE_FUNC11_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE) \
+
+
+#define DECLARE_FAKE_VALUE_FUNC12_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_ARG(ARG0_TYPE, 0, FUNCNAME) \
+        DECLARE_ARG(ARG1_TYPE, 1, FUNCNAME) \
+        DECLARE_ARG(ARG2_TYPE, 2, FUNCNAME) \
+        DECLARE_ARG(ARG3_TYPE, 3, FUNCNAME) \
+        DECLARE_ARG(ARG4_TYPE, 4, FUNCNAME) \
+        DECLARE_ARG(ARG5_TYPE, 5, FUNCNAME) \
+        DECLARE_ARG(ARG6_TYPE, 6, FUNCNAME) \
+        DECLARE_ARG(ARG7_TYPE, 7, FUNCNAME) \
+        DECLARE_ARG(ARG8_TYPE, 8, FUNCNAME) \
+        DECLARE_ARG(ARG9_TYPE, 9, FUNCNAME) \
+        DECLARE_ARG(ARG10_TYPE, 10, FUNCNAME) \
+        DECLARE_ARG(ARG11_TYPE, 11, FUNCNAME) \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_VALUE_FUNCTION_VARIABLES(RETURN_TYPE) \
+        DECLARE_RETURN_VALUE_HISTORY(RETURN_TYPE) \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, custom_fake, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, *custom_fake_seq, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VALUE_FUNC12_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    RETURN_TYPE FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(ARG0_TYPE arg0, ARG1_TYPE arg1, ARG2_TYPE arg2, ARG3_TYPE arg3, ARG4_TYPE arg4, ARG5_TYPE arg5, ARG6_TYPE arg6, ARG7_TYPE arg7, ARG8_TYPE arg8, ARG9_TYPE arg9, ARG10_TYPE arg10, ARG11_TYPE arg11){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        SAVE_ARG(FUNCNAME, 0); \
+        SAVE_ARG(FUNCNAME, 1); \
+        SAVE_ARG(FUNCNAME, 2); \
+        SAVE_ARG(FUNCNAME, 3); \
+        SAVE_ARG(FUNCNAME, 4); \
+        SAVE_ARG(FUNCNAME, 5); \
+        SAVE_ARG(FUNCNAME, 6); \
+        SAVE_ARG(FUNCNAME, 7); \
+        SAVE_ARG(FUNCNAME, 8); \
+        SAVE_ARG(FUNCNAME, 9); \
+        SAVE_ARG(FUNCNAME, 10); \
+        SAVE_ARG(FUNCNAME, 11); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+            SAVE_ARG_HISTORY(FUNCNAME, 0); \
+            SAVE_ARG_HISTORY(FUNCNAME, 1); \
+            SAVE_ARG_HISTORY(FUNCNAME, 2); \
+            SAVE_ARG_HISTORY(FUNCNAME, 3); \
+            SAVE_ARG_HISTORY(FUNCNAME, 4); \
+            SAVE_ARG_HISTORY(FUNCNAME, 5); \
+            SAVE_ARG_HISTORY(FUNCNAME, 6); \
+            SAVE_ARG_HISTORY(FUNCNAME, 7); \
+            SAVE_ARG_HISTORY(FUNCNAME, 8); \
+            SAVE_ARG_HISTORY(FUNCNAME, 9); \
+            SAVE_ARG_HISTORY(FUNCNAME, 10); \
+            SAVE_ARG_HISTORY(FUNCNAME, 11); \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+            else{ \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+        } \
+        if (FUNCNAME##_fake.custom_fake != NULL){  \
+            RETURN_TYPE ret = FUNCNAME##_fake.custom_fake(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11); \
+            SAVE_RET_HISTORY(FUNCNAME, ret); \
+            FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+            return ret; \
+        } \
+        RETURN_FAKE_RESULT_TS(FUNCNAME) \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VALUE_FUNC12_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE) \
+    DECLARE_FAKE_VALUE_FUNC12_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE) \
+    DEFINE_FAKE_VALUE_FUNC12_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE) \
+
+
+#define DECLARE_FAKE_VALUE_FUNC13_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_ARG(ARG0_TYPE, 0, FUNCNAME) \
+        DECLARE_ARG(ARG1_TYPE, 1, FUNCNAME) \
+        DECLARE_ARG(ARG2_TYPE, 2, FUNCNAME) \
+        DECLARE_ARG(ARG3_TYPE, 3, FUNCNAME) \
+        DECLARE_ARG(ARG4_TYPE, 4, FUNCNAME) \
+        DECLARE_ARG(ARG5_TYPE, 5, FUNCNAME) \
+        DECLARE_ARG(ARG6_TYPE, 6, FUNCNAME) \
+        DECLARE_ARG(ARG7_TYPE, 7, FUNCNAME) \
+        DECLARE_ARG(ARG8_TYPE, 8, FUNCNAME) \
+        DECLARE_ARG(ARG9_TYPE, 9, FUNCNAME) \
+        DECLARE_ARG(ARG10_TYPE, 10, FUNCNAME) \
+        DECLARE_ARG(ARG11_TYPE, 11, FUNCNAME) \
+        DECLARE_ARG(ARG12_TYPE, 12, FUNCNAME) \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_VALUE_FUNCTION_VARIABLES(RETURN_TYPE) \
+        DECLARE_RETURN_VALUE_HISTORY(RETURN_TYPE) \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, custom_fake, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, *custom_fake_seq, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VALUE_FUNC13_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    RETURN_TYPE FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(ARG0_TYPE arg0, ARG1_TYPE arg1, ARG2_TYPE arg2, ARG3_TYPE arg3, ARG4_TYPE arg4, ARG5_TYPE arg5, ARG6_TYPE arg6, ARG7_TYPE arg7, ARG8_TYPE arg8, ARG9_TYPE arg9, ARG10_TYPE arg10, ARG11_TYPE arg11, ARG12_TYPE arg12){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        SAVE_ARG(FUNCNAME, 0); \
+        SAVE_ARG(FUNCNAME, 1); \
+        SAVE_ARG(FUNCNAME, 2); \
+        SAVE_ARG(FUNCNAME, 3); \
+        SAVE_ARG(FUNCNAME, 4); \
+        SAVE_ARG(FUNCNAME, 5); \
+        SAVE_ARG(FUNCNAME, 6); \
+        SAVE_ARG(FUNCNAME, 7); \
+        SAVE_ARG(FUNCNAME, 8); \
+        SAVE_ARG(FUNCNAME, 9); \
+        SAVE_ARG(FUNCNAME, 10); \
+        SAVE_ARG(FUNCNAME, 11); \
+        SAVE_ARG(FUNCNAME, 12); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+            SAVE_ARG_HISTORY(FUNCNAME, 0); \
+            SAVE_ARG_HISTORY(FUNCNAME, 1); \
+            SAVE_ARG_HISTORY(FUNCNAME, 2); \
+            SAVE_ARG_HISTORY(FUNCNAME, 3); \
+            SAVE_ARG_HISTORY(FUNCNAME, 4); \
+            SAVE_ARG_HISTORY(FUNCNAME, 5); \
+            SAVE_ARG_HISTORY(FUNCNAME, 6); \
+            SAVE_ARG_HISTORY(FUNCNAME, 7); \
+            SAVE_ARG_HISTORY(FUNCNAME, 8); \
+            SAVE_ARG_HISTORY(FUNCNAME, 9); \
+            SAVE_ARG_HISTORY(FUNCNAME, 10); \
+            SAVE_ARG_HISTORY(FUNCNAME, 11); \
+            SAVE_ARG_HISTORY(FUNCNAME, 12); \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+            else{ \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+        } \
+        if (FUNCNAME##_fake.custom_fake != NULL){  \
+            RETURN_TYPE ret = FUNCNAME##_fake.custom_fake(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12); \
+            SAVE_RET_HISTORY(FUNCNAME, ret); \
+            FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+            return ret; \
+        } \
+        RETURN_FAKE_RESULT_TS(FUNCNAME) \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VALUE_FUNC13_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE) \
+    DECLARE_FAKE_VALUE_FUNC13_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE) \
+    DEFINE_FAKE_VALUE_FUNC13_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE) \
+
+
+#define DECLARE_FAKE_VALUE_FUNC14_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_ARG(ARG0_TYPE, 0, FUNCNAME) \
+        DECLARE_ARG(ARG1_TYPE, 1, FUNCNAME) \
+        DECLARE_ARG(ARG2_TYPE, 2, FUNCNAME) \
+        DECLARE_ARG(ARG3_TYPE, 3, FUNCNAME) \
+        DECLARE_ARG(ARG4_TYPE, 4, FUNCNAME) \
+        DECLARE_ARG(ARG5_TYPE, 5, FUNCNAME) \
+        DECLARE_ARG(ARG6_TYPE, 6, FUNCNAME) \
+        DECLARE_ARG(ARG7_TYPE, 7, FUNCNAME) \
+        DECLARE_ARG(ARG8_TYPE, 8, FUNCNAME) \
+        DECLARE_ARG(ARG9_TYPE, 9, FUNCNAME) \
+        DECLARE_ARG(ARG10_TYPE, 10, FUNCNAME) \
+        DECLARE_ARG(ARG11_TYPE, 11, FUNCNAME) \
+        DECLARE_ARG(ARG12_TYPE, 12, FUNCNAME) \
+        DECLARE_ARG(ARG13_TYPE, 13, FUNCNAME) \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_VALUE_FUNCTION_VARIABLES(RETURN_TYPE) \
+        DECLARE_RETURN_VALUE_HISTORY(RETURN_TYPE) \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, custom_fake, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, *custom_fake_seq, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VALUE_FUNC14_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    RETURN_TYPE FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(ARG0_TYPE arg0, ARG1_TYPE arg1, ARG2_TYPE arg2, ARG3_TYPE arg3, ARG4_TYPE arg4, ARG5_TYPE arg5, ARG6_TYPE arg6, ARG7_TYPE arg7, ARG8_TYPE arg8, ARG9_TYPE arg9, ARG10_TYPE arg10, ARG11_TYPE arg11, ARG12_TYPE arg12, ARG13_TYPE arg13){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        SAVE_ARG(FUNCNAME, 0); \
+        SAVE_ARG(FUNCNAME, 1); \
+        SAVE_ARG(FUNCNAME, 2); \
+        SAVE_ARG(FUNCNAME, 3); \
+        SAVE_ARG(FUNCNAME, 4); \
+        SAVE_ARG(FUNCNAME, 5); \
+        SAVE_ARG(FUNCNAME, 6); \
+        SAVE_ARG(FUNCNAME, 7); \
+        SAVE_ARG(FUNCNAME, 8); \
+        SAVE_ARG(FUNCNAME, 9); \
+        SAVE_ARG(FUNCNAME, 10); \
+        SAVE_ARG(FUNCNAME, 11); \
+        SAVE_ARG(FUNCNAME, 12); \
+        SAVE_ARG(FUNCNAME, 13); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+            SAVE_ARG_HISTORY(FUNCNAME, 0); \
+            SAVE_ARG_HISTORY(FUNCNAME, 1); \
+            SAVE_ARG_HISTORY(FUNCNAME, 2); \
+            SAVE_ARG_HISTORY(FUNCNAME, 3); \
+            SAVE_ARG_HISTORY(FUNCNAME, 4); \
+            SAVE_ARG_HISTORY(FUNCNAME, 5); \
+            SAVE_ARG_HISTORY(FUNCNAME, 6); \
+            SAVE_ARG_HISTORY(FUNCNAME, 7); \
+            SAVE_ARG_HISTORY(FUNCNAME, 8); \
+            SAVE_ARG_HISTORY(FUNCNAME, 9); \
+            SAVE_ARG_HISTORY(FUNCNAME, 10); \
+            SAVE_ARG_HISTORY(FUNCNAME, 11); \
+            SAVE_ARG_HISTORY(FUNCNAME, 12); \
+            SAVE_ARG_HISTORY(FUNCNAME, 13); \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+            else{ \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+        } \
+        if (FUNCNAME##_fake.custom_fake != NULL){  \
+            RETURN_TYPE ret = FUNCNAME##_fake.custom_fake(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13); \
+            SAVE_RET_HISTORY(FUNCNAME, ret); \
+            FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+            return ret; \
+        } \
+        RETURN_FAKE_RESULT_TS(FUNCNAME) \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VALUE_FUNC14_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE) \
+    DECLARE_FAKE_VALUE_FUNC14_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE) \
+    DEFINE_FAKE_VALUE_FUNC14_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE) \
+
+
+#define DECLARE_FAKE_VALUE_FUNC15_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_ARG(ARG0_TYPE, 0, FUNCNAME) \
+        DECLARE_ARG(ARG1_TYPE, 1, FUNCNAME) \
+        DECLARE_ARG(ARG2_TYPE, 2, FUNCNAME) \
+        DECLARE_ARG(ARG3_TYPE, 3, FUNCNAME) \
+        DECLARE_ARG(ARG4_TYPE, 4, FUNCNAME) \
+        DECLARE_ARG(ARG5_TYPE, 5, FUNCNAME) \
+        DECLARE_ARG(ARG6_TYPE, 6, FUNCNAME) \
+        DECLARE_ARG(ARG7_TYPE, 7, FUNCNAME) \
+        DECLARE_ARG(ARG8_TYPE, 8, FUNCNAME) \
+        DECLARE_ARG(ARG9_TYPE, 9, FUNCNAME) \
+        DECLARE_ARG(ARG10_TYPE, 10, FUNCNAME) \
+        DECLARE_ARG(ARG11_TYPE, 11, FUNCNAME) \
+        DECLARE_ARG(ARG12_TYPE, 12, FUNCNAME) \
+        DECLARE_ARG(ARG13_TYPE, 13, FUNCNAME) \
+        DECLARE_ARG(ARG14_TYPE, 14, FUNCNAME) \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_VALUE_FUNCTION_VARIABLES(RETURN_TYPE) \
+        DECLARE_RETURN_VALUE_HISTORY(RETURN_TYPE) \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, custom_fake, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, *custom_fake_seq, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VALUE_FUNC15_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    RETURN_TYPE FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(ARG0_TYPE arg0, ARG1_TYPE arg1, ARG2_TYPE arg2, ARG3_TYPE arg3, ARG4_TYPE arg4, ARG5_TYPE arg5, ARG6_TYPE arg6, ARG7_TYPE arg7, ARG8_TYPE arg8, ARG9_TYPE arg9, ARG10_TYPE arg10, ARG11_TYPE arg11, ARG12_TYPE arg12, ARG13_TYPE arg13, ARG14_TYPE arg14){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        SAVE_ARG(FUNCNAME, 0); \
+        SAVE_ARG(FUNCNAME, 1); \
+        SAVE_ARG(FUNCNAME, 2); \
+        SAVE_ARG(FUNCNAME, 3); \
+        SAVE_ARG(FUNCNAME, 4); \
+        SAVE_ARG(FUNCNAME, 5); \
+        SAVE_ARG(FUNCNAME, 6); \
+        SAVE_ARG(FUNCNAME, 7); \
+        SAVE_ARG(FUNCNAME, 8); \
+        SAVE_ARG(FUNCNAME, 9); \
+        SAVE_ARG(FUNCNAME, 10); \
+        SAVE_ARG(FUNCNAME, 11); \
+        SAVE_ARG(FUNCNAME, 12); \
+        SAVE_ARG(FUNCNAME, 13); \
+        SAVE_ARG(FUNCNAME, 14); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+            SAVE_ARG_HISTORY(FUNCNAME, 0); \
+            SAVE_ARG_HISTORY(FUNCNAME, 1); \
+            SAVE_ARG_HISTORY(FUNCNAME, 2); \
+            SAVE_ARG_HISTORY(FUNCNAME, 3); \
+            SAVE_ARG_HISTORY(FUNCNAME, 4); \
+            SAVE_ARG_HISTORY(FUNCNAME, 5); \
+            SAVE_ARG_HISTORY(FUNCNAME, 6); \
+            SAVE_ARG_HISTORY(FUNCNAME, 7); \
+            SAVE_ARG_HISTORY(FUNCNAME, 8); \
+            SAVE_ARG_HISTORY(FUNCNAME, 9); \
+            SAVE_ARG_HISTORY(FUNCNAME, 10); \
+            SAVE_ARG_HISTORY(FUNCNAME, 11); \
+            SAVE_ARG_HISTORY(FUNCNAME, 12); \
+            SAVE_ARG_HISTORY(FUNCNAME, 13); \
+            SAVE_ARG_HISTORY(FUNCNAME, 14); \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+            else{ \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+        } \
+        if (FUNCNAME##_fake.custom_fake != NULL){  \
+            RETURN_TYPE ret = FUNCNAME##_fake.custom_fake(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14); \
+            SAVE_RET_HISTORY(FUNCNAME, ret); \
+            FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+            return ret; \
+        } \
+        RETURN_FAKE_RESULT_TS(FUNCNAME) \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VALUE_FUNC15_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE) \
+    DECLARE_FAKE_VALUE_FUNC15_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE) \
+    DEFINE_FAKE_VALUE_FUNC15_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE) \
+
+
+#define DECLARE_FAKE_VALUE_FUNC16_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_ARG(ARG0_TYPE, 0, FUNCNAME) \
+        DECLARE_ARG(ARG1_TYPE, 1, FUNCNAME) \
+        DECLARE_ARG(ARG2_TYPE, 2, FUNCNAME) \
+        DECLARE_ARG(ARG3_TYPE, 3, FUNCNAME) \
+        DECLARE_ARG(ARG4_TYPE, 4, FUNCNAME) \
+        DECLARE_ARG(ARG5_TYPE, 5, FUNCNAME) \
+        DECLARE_ARG(ARG6_TYPE, 6, FUNCNAME) \
+        DECLARE_ARG(ARG7_TYPE, 7, FUNCNAME) \
+        DECLARE_ARG(ARG8_TYPE, 8, FUNCNAME) \
+        DECLARE_ARG(ARG9_TYPE, 9, FUNCNAME) \
+        DECLARE_ARG(ARG10_TYPE, 10, FUNCNAME) \
+        DECLARE_ARG(ARG11_TYPE, 11, FUNCNAME) \
+        DECLARE_ARG(ARG12_TYPE, 12, FUNCNAME) \
+        DECLARE_ARG(ARG13_TYPE, 13, FUNCNAME) \
+        DECLARE_ARG(ARG14_TYPE, 14, FUNCNAME) \
+        DECLARE_ARG(ARG15_TYPE, 15, FUNCNAME) \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_VALUE_FUNCTION_VARIABLES(RETURN_TYPE) \
+        DECLARE_RETURN_VALUE_HISTORY(RETURN_TYPE) \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, custom_fake, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, *custom_fake_seq, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VALUE_FUNC16_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    RETURN_TYPE FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(ARG0_TYPE arg0, ARG1_TYPE arg1, ARG2_TYPE arg2, ARG3_TYPE arg3, ARG4_TYPE arg4, ARG5_TYPE arg5, ARG6_TYPE arg6, ARG7_TYPE arg7, ARG8_TYPE arg8, ARG9_TYPE arg9, ARG10_TYPE arg10, ARG11_TYPE arg11, ARG12_TYPE arg12, ARG13_TYPE arg13, ARG14_TYPE arg14, ARG15_TYPE arg15){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        SAVE_ARG(FUNCNAME, 0); \
+        SAVE_ARG(FUNCNAME, 1); \
+        SAVE_ARG(FUNCNAME, 2); \
+        SAVE_ARG(FUNCNAME, 3); \
+        SAVE_ARG(FUNCNAME, 4); \
+        SAVE_ARG(FUNCNAME, 5); \
+        SAVE_ARG(FUNCNAME, 6); \
+        SAVE_ARG(FUNCNAME, 7); \
+        SAVE_ARG(FUNCNAME, 8); \
+        SAVE_ARG(FUNCNAME, 9); \
+        SAVE_ARG(FUNCNAME, 10); \
+        SAVE_ARG(FUNCNAME, 11); \
+        SAVE_ARG(FUNCNAME, 12); \
+        SAVE_ARG(FUNCNAME, 13); \
+        SAVE_ARG(FUNCNAME, 14); \
+        SAVE_ARG(FUNCNAME, 15); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+            SAVE_ARG_HISTORY(FUNCNAME, 0); \
+            SAVE_ARG_HISTORY(FUNCNAME, 1); \
+            SAVE_ARG_HISTORY(FUNCNAME, 2); \
+            SAVE_ARG_HISTORY(FUNCNAME, 3); \
+            SAVE_ARG_HISTORY(FUNCNAME, 4); \
+            SAVE_ARG_HISTORY(FUNCNAME, 5); \
+            SAVE_ARG_HISTORY(FUNCNAME, 6); \
+            SAVE_ARG_HISTORY(FUNCNAME, 7); \
+            SAVE_ARG_HISTORY(FUNCNAME, 8); \
+            SAVE_ARG_HISTORY(FUNCNAME, 9); \
+            SAVE_ARG_HISTORY(FUNCNAME, 10); \
+            SAVE_ARG_HISTORY(FUNCNAME, 11); \
+            SAVE_ARG_HISTORY(FUNCNAME, 12); \
+            SAVE_ARG_HISTORY(FUNCNAME, 13); \
+            SAVE_ARG_HISTORY(FUNCNAME, 14); \
+            SAVE_ARG_HISTORY(FUNCNAME, 15); \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+            else{ \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+        } \
+        if (FUNCNAME##_fake.custom_fake != NULL){  \
+            RETURN_TYPE ret = FUNCNAME##_fake.custom_fake(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15); \
+            SAVE_RET_HISTORY(FUNCNAME, ret); \
+            FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+            return ret; \
+        } \
+        RETURN_FAKE_RESULT_TS(FUNCNAME) \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VALUE_FUNC16_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE) \
+    DECLARE_FAKE_VALUE_FUNC16_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE) \
+    DEFINE_FAKE_VALUE_FUNC16_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE) \
+
+
+#define DECLARE_FAKE_VALUE_FUNC17_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_ARG(ARG0_TYPE, 0, FUNCNAME) \
+        DECLARE_ARG(ARG1_TYPE, 1, FUNCNAME) \
+        DECLARE_ARG(ARG2_TYPE, 2, FUNCNAME) \
+        DECLARE_ARG(ARG3_TYPE, 3, FUNCNAME) \
+        DECLARE_ARG(ARG4_TYPE, 4, FUNCNAME) \
+        DECLARE_ARG(ARG5_TYPE, 5, FUNCNAME) \
+        DECLARE_ARG(ARG6_TYPE, 6, FUNCNAME) \
+        DECLARE_ARG(ARG7_TYPE, 7, FUNCNAME) \
+        DECLARE_ARG(ARG8_TYPE, 8, FUNCNAME) \
+        DECLARE_ARG(ARG9_TYPE, 9, FUNCNAME) \
+        DECLARE_ARG(ARG10_TYPE, 10, FUNCNAME) \
+        DECLARE_ARG(ARG11_TYPE, 11, FUNCNAME) \
+        DECLARE_ARG(ARG12_TYPE, 12, FUNCNAME) \
+        DECLARE_ARG(ARG13_TYPE, 13, FUNCNAME) \
+        DECLARE_ARG(ARG14_TYPE, 14, FUNCNAME) \
+        DECLARE_ARG(ARG15_TYPE, 15, FUNCNAME) \
+        DECLARE_ARG(ARG16_TYPE, 16, FUNCNAME) \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_VALUE_FUNCTION_VARIABLES(RETURN_TYPE) \
+        DECLARE_RETURN_VALUE_HISTORY(RETURN_TYPE) \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, custom_fake, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, *custom_fake_seq, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VALUE_FUNC17_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    RETURN_TYPE FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(ARG0_TYPE arg0, ARG1_TYPE arg1, ARG2_TYPE arg2, ARG3_TYPE arg3, ARG4_TYPE arg4, ARG5_TYPE arg5, ARG6_TYPE arg6, ARG7_TYPE arg7, ARG8_TYPE arg8, ARG9_TYPE arg9, ARG10_TYPE arg10, ARG11_TYPE arg11, ARG12_TYPE arg12, ARG13_TYPE arg13, ARG14_TYPE arg14, ARG15_TYPE arg15, ARG16_TYPE arg16){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        SAVE_ARG(FUNCNAME, 0); \
+        SAVE_ARG(FUNCNAME, 1); \
+        SAVE_ARG(FUNCNAME, 2); \
+        SAVE_ARG(FUNCNAME, 3); \
+        SAVE_ARG(FUNCNAME, 4); \
+        SAVE_ARG(FUNCNAME, 5); \
+        SAVE_ARG(FUNCNAME, 6); \
+        SAVE_ARG(FUNCNAME, 7); \
+        SAVE_ARG(FUNCNAME, 8); \
+        SAVE_ARG(FUNCNAME, 9); \
+        SAVE_ARG(FUNCNAME, 10); \
+        SAVE_ARG(FUNCNAME, 11); \
+        SAVE_ARG(FUNCNAME, 12); \
+        SAVE_ARG(FUNCNAME, 13); \
+        SAVE_ARG(FUNCNAME, 14); \
+        SAVE_ARG(FUNCNAME, 15); \
+        SAVE_ARG(FUNCNAME, 16); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+            SAVE_ARG_HISTORY(FUNCNAME, 0); \
+            SAVE_ARG_HISTORY(FUNCNAME, 1); \
+            SAVE_ARG_HISTORY(FUNCNAME, 2); \
+            SAVE_ARG_HISTORY(FUNCNAME, 3); \
+            SAVE_ARG_HISTORY(FUNCNAME, 4); \
+            SAVE_ARG_HISTORY(FUNCNAME, 5); \
+            SAVE_ARG_HISTORY(FUNCNAME, 6); \
+            SAVE_ARG_HISTORY(FUNCNAME, 7); \
+            SAVE_ARG_HISTORY(FUNCNAME, 8); \
+            SAVE_ARG_HISTORY(FUNCNAME, 9); \
+            SAVE_ARG_HISTORY(FUNCNAME, 10); \
+            SAVE_ARG_HISTORY(FUNCNAME, 11); \
+            SAVE_ARG_HISTORY(FUNCNAME, 12); \
+            SAVE_ARG_HISTORY(FUNCNAME, 13); \
+            SAVE_ARG_HISTORY(FUNCNAME, 14); \
+            SAVE_ARG_HISTORY(FUNCNAME, 15); \
+            SAVE_ARG_HISTORY(FUNCNAME, 16); \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+            else{ \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+        } \
+        if (FUNCNAME##_fake.custom_fake != NULL){  \
+            RETURN_TYPE ret = FUNCNAME##_fake.custom_fake(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16); \
+            SAVE_RET_HISTORY(FUNCNAME, ret); \
+            FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+            return ret; \
+        } \
+        RETURN_FAKE_RESULT_TS(FUNCNAME) \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VALUE_FUNC17_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE) \
+    DECLARE_FAKE_VALUE_FUNC17_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE) \
+    DEFINE_FAKE_VALUE_FUNC17_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE) \
+
+
+#define DECLARE_FAKE_VALUE_FUNC18_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ARG17_TYPE) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_ARG(ARG0_TYPE, 0, FUNCNAME) \
+        DECLARE_ARG(ARG1_TYPE, 1, FUNCNAME) \
+        DECLARE_ARG(ARG2_TYPE, 2, FUNCNAME) \
+        DECLARE_ARG(ARG3_TYPE, 3, FUNCNAME) \
+        DECLARE_ARG(ARG4_TYPE, 4, FUNCNAME) \
+        DECLARE_ARG(ARG5_TYPE, 5, FUNCNAME) \
+        DECLARE_ARG(ARG6_TYPE, 6, FUNCNAME) \
+        DECLARE_ARG(ARG7_TYPE, 7, FUNCNAME) \
+        DECLARE_ARG(ARG8_TYPE, 8, FUNCNAME) \
+        DECLARE_ARG(ARG9_TYPE, 9, FUNCNAME) \
+        DECLARE_ARG(ARG10_TYPE, 10, FUNCNAME) \
+        DECLARE_ARG(ARG11_TYPE, 11, FUNCNAME) \
+        DECLARE_ARG(ARG12_TYPE, 12, FUNCNAME) \
+        DECLARE_ARG(ARG13_TYPE, 13, FUNCNAME) \
+        DECLARE_ARG(ARG14_TYPE, 14, FUNCNAME) \
+        DECLARE_ARG(ARG15_TYPE, 15, FUNCNAME) \
+        DECLARE_ARG(ARG16_TYPE, 16, FUNCNAME) \
+        DECLARE_ARG(ARG17_TYPE, 17, FUNCNAME) \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_VALUE_FUNCTION_VARIABLES(RETURN_TYPE) \
+        DECLARE_RETURN_VALUE_HISTORY(RETURN_TYPE) \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, custom_fake, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ARG17_TYPE); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, *custom_fake_seq, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ARG17_TYPE); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VALUE_FUNC18_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ARG17_TYPE) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    RETURN_TYPE FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(ARG0_TYPE arg0, ARG1_TYPE arg1, ARG2_TYPE arg2, ARG3_TYPE arg3, ARG4_TYPE arg4, ARG5_TYPE arg5, ARG6_TYPE arg6, ARG7_TYPE arg7, ARG8_TYPE arg8, ARG9_TYPE arg9, ARG10_TYPE arg10, ARG11_TYPE arg11, ARG12_TYPE arg12, ARG13_TYPE arg13, ARG14_TYPE arg14, ARG15_TYPE arg15, ARG16_TYPE arg16, ARG17_TYPE arg17){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        SAVE_ARG(FUNCNAME, 0); \
+        SAVE_ARG(FUNCNAME, 1); \
+        SAVE_ARG(FUNCNAME, 2); \
+        SAVE_ARG(FUNCNAME, 3); \
+        SAVE_ARG(FUNCNAME, 4); \
+        SAVE_ARG(FUNCNAME, 5); \
+        SAVE_ARG(FUNCNAME, 6); \
+        SAVE_ARG(FUNCNAME, 7); \
+        SAVE_ARG(FUNCNAME, 8); \
+        SAVE_ARG(FUNCNAME, 9); \
+        SAVE_ARG(FUNCNAME, 10); \
+        SAVE_ARG(FUNCNAME, 11); \
+        SAVE_ARG(FUNCNAME, 12); \
+        SAVE_ARG(FUNCNAME, 13); \
+        SAVE_ARG(FUNCNAME, 14); \
+        SAVE_ARG(FUNCNAME, 15); \
+        SAVE_ARG(FUNCNAME, 16); \
+        SAVE_ARG(FUNCNAME, 17); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+            SAVE_ARG_HISTORY(FUNCNAME, 0); \
+            SAVE_ARG_HISTORY(FUNCNAME, 1); \
+            SAVE_ARG_HISTORY(FUNCNAME, 2); \
+            SAVE_ARG_HISTORY(FUNCNAME, 3); \
+            SAVE_ARG_HISTORY(FUNCNAME, 4); \
+            SAVE_ARG_HISTORY(FUNCNAME, 5); \
+            SAVE_ARG_HISTORY(FUNCNAME, 6); \
+            SAVE_ARG_HISTORY(FUNCNAME, 7); \
+            SAVE_ARG_HISTORY(FUNCNAME, 8); \
+            SAVE_ARG_HISTORY(FUNCNAME, 9); \
+            SAVE_ARG_HISTORY(FUNCNAME, 10); \
+            SAVE_ARG_HISTORY(FUNCNAME, 11); \
+            SAVE_ARG_HISTORY(FUNCNAME, 12); \
+            SAVE_ARG_HISTORY(FUNCNAME, 13); \
+            SAVE_ARG_HISTORY(FUNCNAME, 14); \
+            SAVE_ARG_HISTORY(FUNCNAME, 15); \
+            SAVE_ARG_HISTORY(FUNCNAME, 16); \
+            SAVE_ARG_HISTORY(FUNCNAME, 17); \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+            else{ \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+        } \
+        if (FUNCNAME##_fake.custom_fake != NULL){  \
+            RETURN_TYPE ret = FUNCNAME##_fake.custom_fake(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17); \
+            SAVE_RET_HISTORY(FUNCNAME, ret); \
+            FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+            return ret; \
+        } \
+        RETURN_FAKE_RESULT_TS(FUNCNAME) \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VALUE_FUNC18_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ARG17_TYPE) \
+    DECLARE_FAKE_VALUE_FUNC18_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ARG17_TYPE) \
+    DEFINE_FAKE_VALUE_FUNC18_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ARG17_TYPE) \
+
+
+#define DECLARE_FAKE_VALUE_FUNC19_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ARG17_TYPE, ARG18_TYPE) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_ARG(ARG0_TYPE, 0, FUNCNAME) \
+        DECLARE_ARG(ARG1_TYPE, 1, FUNCNAME) \
+        DECLARE_ARG(ARG2_TYPE, 2, FUNCNAME) \
+        DECLARE_ARG(ARG3_TYPE, 3, FUNCNAME) \
+        DECLARE_ARG(ARG4_TYPE, 4, FUNCNAME) \
+        DECLARE_ARG(ARG5_TYPE, 5, FUNCNAME) \
+        DECLARE_ARG(ARG6_TYPE, 6, FUNCNAME) \
+        DECLARE_ARG(ARG7_TYPE, 7, FUNCNAME) \
+        DECLARE_ARG(ARG8_TYPE, 8, FUNCNAME) \
+        DECLARE_ARG(ARG9_TYPE, 9, FUNCNAME) \
+        DECLARE_ARG(ARG10_TYPE, 10, FUNCNAME) \
+        DECLARE_ARG(ARG11_TYPE, 11, FUNCNAME) \
+        DECLARE_ARG(ARG12_TYPE, 12, FUNCNAME) \
+        DECLARE_ARG(ARG13_TYPE, 13, FUNCNAME) \
+        DECLARE_ARG(ARG14_TYPE, 14, FUNCNAME) \
+        DECLARE_ARG(ARG15_TYPE, 15, FUNCNAME) \
+        DECLARE_ARG(ARG16_TYPE, 16, FUNCNAME) \
+        DECLARE_ARG(ARG17_TYPE, 17, FUNCNAME) \
+        DECLARE_ARG(ARG18_TYPE, 18, FUNCNAME) \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_VALUE_FUNCTION_VARIABLES(RETURN_TYPE) \
+        DECLARE_RETURN_VALUE_HISTORY(RETURN_TYPE) \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, custom_fake, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ARG17_TYPE, ARG18_TYPE); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, *custom_fake_seq, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ARG17_TYPE, ARG18_TYPE); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VALUE_FUNC19_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ARG17_TYPE, ARG18_TYPE) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    RETURN_TYPE FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(ARG0_TYPE arg0, ARG1_TYPE arg1, ARG2_TYPE arg2, ARG3_TYPE arg3, ARG4_TYPE arg4, ARG5_TYPE arg5, ARG6_TYPE arg6, ARG7_TYPE arg7, ARG8_TYPE arg8, ARG9_TYPE arg9, ARG10_TYPE arg10, ARG11_TYPE arg11, ARG12_TYPE arg12, ARG13_TYPE arg13, ARG14_TYPE arg14, ARG15_TYPE arg15, ARG16_TYPE arg16, ARG17_TYPE arg17, ARG18_TYPE arg18){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        SAVE_ARG(FUNCNAME, 0); \
+        SAVE_ARG(FUNCNAME, 1); \
+        SAVE_ARG(FUNCNAME, 2); \
+        SAVE_ARG(FUNCNAME, 3); \
+        SAVE_ARG(FUNCNAME, 4); \
+        SAVE_ARG(FUNCNAME, 5); \
+        SAVE_ARG(FUNCNAME, 6); \
+        SAVE_ARG(FUNCNAME, 7); \
+        SAVE_ARG(FUNCNAME, 8); \
+        SAVE_ARG(FUNCNAME, 9); \
+        SAVE_ARG(FUNCNAME, 10); \
+        SAVE_ARG(FUNCNAME, 11); \
+        SAVE_ARG(FUNCNAME, 12); \
+        SAVE_ARG(FUNCNAME, 13); \
+        SAVE_ARG(FUNCNAME, 14); \
+        SAVE_ARG(FUNCNAME, 15); \
+        SAVE_ARG(FUNCNAME, 16); \
+        SAVE_ARG(FUNCNAME, 17); \
+        SAVE_ARG(FUNCNAME, 18); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+            SAVE_ARG_HISTORY(FUNCNAME, 0); \
+            SAVE_ARG_HISTORY(FUNCNAME, 1); \
+            SAVE_ARG_HISTORY(FUNCNAME, 2); \
+            SAVE_ARG_HISTORY(FUNCNAME, 3); \
+            SAVE_ARG_HISTORY(FUNCNAME, 4); \
+            SAVE_ARG_HISTORY(FUNCNAME, 5); \
+            SAVE_ARG_HISTORY(FUNCNAME, 6); \
+            SAVE_ARG_HISTORY(FUNCNAME, 7); \
+            SAVE_ARG_HISTORY(FUNCNAME, 8); \
+            SAVE_ARG_HISTORY(FUNCNAME, 9); \
+            SAVE_ARG_HISTORY(FUNCNAME, 10); \
+            SAVE_ARG_HISTORY(FUNCNAME, 11); \
+            SAVE_ARG_HISTORY(FUNCNAME, 12); \
+            SAVE_ARG_HISTORY(FUNCNAME, 13); \
+            SAVE_ARG_HISTORY(FUNCNAME, 14); \
+            SAVE_ARG_HISTORY(FUNCNAME, 15); \
+            SAVE_ARG_HISTORY(FUNCNAME, 16); \
+            SAVE_ARG_HISTORY(FUNCNAME, 17); \
+            SAVE_ARG_HISTORY(FUNCNAME, 18); \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+            else{ \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+        } \
+        if (FUNCNAME##_fake.custom_fake != NULL){  \
+            RETURN_TYPE ret = FUNCNAME##_fake.custom_fake(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18); \
+            SAVE_RET_HISTORY(FUNCNAME, ret); \
+            FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+            return ret; \
+        } \
+        RETURN_FAKE_RESULT_TS(FUNCNAME) \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VALUE_FUNC19_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ARG17_TYPE, ARG18_TYPE) \
+    DECLARE_FAKE_VALUE_FUNC19_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ARG17_TYPE, ARG18_TYPE) \
+    DEFINE_FAKE_VALUE_FUNC19_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ARG17_TYPE, ARG18_TYPE) \
+
+
+#define DECLARE_FAKE_VALUE_FUNC20_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ARG17_TYPE, ARG18_TYPE, ARG19_TYPE) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_ARG(ARG0_TYPE, 0, FUNCNAME) \
+        DECLARE_ARG(ARG1_TYPE, 1, FUNCNAME) \
+        DECLARE_ARG(ARG2_TYPE, 2, FUNCNAME) \
+        DECLARE_ARG(ARG3_TYPE, 3, FUNCNAME) \
+        DECLARE_ARG(ARG4_TYPE, 4, FUNCNAME) \
+        DECLARE_ARG(ARG5_TYPE, 5, FUNCNAME) \
+        DECLARE_ARG(ARG6_TYPE, 6, FUNCNAME) \
+        DECLARE_ARG(ARG7_TYPE, 7, FUNCNAME) \
+        DECLARE_ARG(ARG8_TYPE, 8, FUNCNAME) \
+        DECLARE_ARG(ARG9_TYPE, 9, FUNCNAME) \
+        DECLARE_ARG(ARG10_TYPE, 10, FUNCNAME) \
+        DECLARE_ARG(ARG11_TYPE, 11, FUNCNAME) \
+        DECLARE_ARG(ARG12_TYPE, 12, FUNCNAME) \
+        DECLARE_ARG(ARG13_TYPE, 13, FUNCNAME) \
+        DECLARE_ARG(ARG14_TYPE, 14, FUNCNAME) \
+        DECLARE_ARG(ARG15_TYPE, 15, FUNCNAME) \
+        DECLARE_ARG(ARG16_TYPE, 16, FUNCNAME) \
+        DECLARE_ARG(ARG17_TYPE, 17, FUNCNAME) \
+        DECLARE_ARG(ARG18_TYPE, 18, FUNCNAME) \
+        DECLARE_ARG(ARG19_TYPE, 19, FUNCNAME) \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_VALUE_FUNCTION_VARIABLES(RETURN_TYPE) \
+        DECLARE_RETURN_VALUE_HISTORY(RETURN_TYPE) \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, custom_fake, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ARG17_TYPE, ARG18_TYPE, ARG19_TYPE); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, *custom_fake_seq, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ARG17_TYPE, ARG18_TYPE, ARG19_TYPE); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VALUE_FUNC20_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ARG17_TYPE, ARG18_TYPE, ARG19_TYPE) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    RETURN_TYPE FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(ARG0_TYPE arg0, ARG1_TYPE arg1, ARG2_TYPE arg2, ARG3_TYPE arg3, ARG4_TYPE arg4, ARG5_TYPE arg5, ARG6_TYPE arg6, ARG7_TYPE arg7, ARG8_TYPE arg8, ARG9_TYPE arg9, ARG10_TYPE arg10, ARG11_TYPE arg11, ARG12_TYPE arg12, ARG13_TYPE arg13, ARG14_TYPE arg14, ARG15_TYPE arg15, ARG16_TYPE arg16, ARG17_TYPE arg17, ARG18_TYPE arg18, ARG19_TYPE arg19){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        SAVE_ARG(FUNCNAME, 0); \
+        SAVE_ARG(FUNCNAME, 1); \
+        SAVE_ARG(FUNCNAME, 2); \
+        SAVE_ARG(FUNCNAME, 3); \
+        SAVE_ARG(FUNCNAME, 4); \
+        SAVE_ARG(FUNCNAME, 5); \
+        SAVE_ARG(FUNCNAME, 6); \
+        SAVE_ARG(FUNCNAME, 7); \
+        SAVE_ARG(FUNCNAME, 8); \
+        SAVE_ARG(FUNCNAME, 9); \
+        SAVE_ARG(FUNCNAME, 10); \
+        SAVE_ARG(FUNCNAME, 11); \
+        SAVE_ARG(FUNCNAME, 12); \
+        SAVE_ARG(FUNCNAME, 13); \
+        SAVE_ARG(FUNCNAME, 14); \
+        SAVE_ARG(FUNCNAME, 15); \
+        SAVE_ARG(FUNCNAME, 16); \
+        SAVE_ARG(FUNCNAME, 17); \
+        SAVE_ARG(FUNCNAME, 18); \
+        SAVE_ARG(FUNCNAME, 19); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+            SAVE_ARG_HISTORY(FUNCNAME, 0); \
+            SAVE_ARG_HISTORY(FUNCNAME, 1); \
+            SAVE_ARG_HISTORY(FUNCNAME, 2); \
+            SAVE_ARG_HISTORY(FUNCNAME, 3); \
+            SAVE_ARG_HISTORY(FUNCNAME, 4); \
+            SAVE_ARG_HISTORY(FUNCNAME, 5); \
+            SAVE_ARG_HISTORY(FUNCNAME, 6); \
+            SAVE_ARG_HISTORY(FUNCNAME, 7); \
+            SAVE_ARG_HISTORY(FUNCNAME, 8); \
+            SAVE_ARG_HISTORY(FUNCNAME, 9); \
+            SAVE_ARG_HISTORY(FUNCNAME, 10); \
+            SAVE_ARG_HISTORY(FUNCNAME, 11); \
+            SAVE_ARG_HISTORY(FUNCNAME, 12); \
+            SAVE_ARG_HISTORY(FUNCNAME, 13); \
+            SAVE_ARG_HISTORY(FUNCNAME, 14); \
+            SAVE_ARG_HISTORY(FUNCNAME, 15); \
+            SAVE_ARG_HISTORY(FUNCNAME, 16); \
+            SAVE_ARG_HISTORY(FUNCNAME, 17); \
+            SAVE_ARG_HISTORY(FUNCNAME, 18); \
+            SAVE_ARG_HISTORY(FUNCNAME, 19); \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+            else{ \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+        } \
+        if (FUNCNAME##_fake.custom_fake != NULL){  \
+            RETURN_TYPE ret = FUNCNAME##_fake.custom_fake(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19); \
+            SAVE_RET_HISTORY(FUNCNAME, ret); \
+            FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+            return ret; \
+        } \
+        RETURN_FAKE_RESULT_TS(FUNCNAME) \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VALUE_FUNC20_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ARG17_TYPE, ARG18_TYPE, ARG19_TYPE) \
+    DECLARE_FAKE_VALUE_FUNC20_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ARG17_TYPE, ARG18_TYPE, ARG19_TYPE) \
+    DEFINE_FAKE_VALUE_FUNC20_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ARG17_TYPE, ARG18_TYPE, ARG19_TYPE) \
+
+
+#define DECLARE_FAKE_VOID_FUNC2_VARARG_TS(FUNCNAME, ARG0_TYPE, ...) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_ARG(ARG0_TYPE, 0, FUNCNAME) \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, custom_fake, ARG0_TYPE, va_list ap); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, *custom_fake_seq, ARG0_TYPE, va_list ap); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VOID_FUNC2_VARARG_TS(FUNCNAME, ARG0_TYPE, ...) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(ARG0_TYPE arg0, ...){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        SAVE_ARG(FUNCNAME, 0); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+            SAVE_ARG_HISTORY(FUNCNAME, 0); \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                va_list ap; \
+                va_start(ap, arg0); \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](arg0, ap); \
+                va_end(ap); \
+            } \
+            else{ \
+                va_list ap; \
+                va_start(ap, arg0); \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](arg0, ap); \
+                va_end(ap); \
+            } \
+        } \
+        if(FUNCNAME##_fake.custom_fake){ \
+            va_list ap; \
+            va_start(ap, arg0); \
+            FUNCNAME##_fake.custom_fake(arg0, ap); \
+            va_end(ap); \
+        } \
+        FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VOID_FUNC2_VARARG_TS(FUNCNAME, ARG0_TYPE, ...) \
+    DECLARE_FAKE_VOID_FUNC2_VARARG_TS(FUNCNAME, ARG0_TYPE, ...) \
+    DEFINE_FAKE_VOID_FUNC2_VARARG_TS(FUNCNAME, ARG0_TYPE, ...) \
+
+
+#define DECLARE_FAKE_VOID_FUNC3_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ...) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_ARG(ARG0_TYPE, 0, FUNCNAME) \
+        DECLARE_ARG(ARG1_TYPE, 1, FUNCNAME) \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, custom_fake, ARG0_TYPE, ARG1_TYPE, va_list ap); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, *custom_fake_seq, ARG0_TYPE, ARG1_TYPE, va_list ap); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VOID_FUNC3_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ...) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(ARG0_TYPE arg0, ARG1_TYPE arg1, ...){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        SAVE_ARG(FUNCNAME, 0); \
+        SAVE_ARG(FUNCNAME, 1); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+            SAVE_ARG_HISTORY(FUNCNAME, 0); \
+            SAVE_ARG_HISTORY(FUNCNAME, 1); \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                va_list ap; \
+                va_start(ap, arg1); \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](arg0, arg1, ap); \
+                va_end(ap); \
+            } \
+            else{ \
+                va_list ap; \
+                va_start(ap, arg1); \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](arg0, arg1, ap); \
+                va_end(ap); \
+            } \
+        } \
+        if(FUNCNAME##_fake.custom_fake){ \
+            va_list ap; \
+            va_start(ap, arg1); \
+            FUNCNAME##_fake.custom_fake(arg0, arg1, ap); \
+            va_end(ap); \
+        } \
+        FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VOID_FUNC3_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ...) \
+    DECLARE_FAKE_VOID_FUNC3_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ...) \
+    DEFINE_FAKE_VOID_FUNC3_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ...) \
+
+
+#define DECLARE_FAKE_VOID_FUNC4_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ...) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_ARG(ARG0_TYPE, 0, FUNCNAME) \
+        DECLARE_ARG(ARG1_TYPE, 1, FUNCNAME) \
+        DECLARE_ARG(ARG2_TYPE, 2, FUNCNAME) \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, custom_fake, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, va_list ap); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, *custom_fake_seq, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, va_list ap); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VOID_FUNC4_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ...) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(ARG0_TYPE arg0, ARG1_TYPE arg1, ARG2_TYPE arg2, ...){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        SAVE_ARG(FUNCNAME, 0); \
+        SAVE_ARG(FUNCNAME, 1); \
+        SAVE_ARG(FUNCNAME, 2); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+            SAVE_ARG_HISTORY(FUNCNAME, 0); \
+            SAVE_ARG_HISTORY(FUNCNAME, 1); \
+            SAVE_ARG_HISTORY(FUNCNAME, 2); \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                va_list ap; \
+                va_start(ap, arg2); \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](arg0, arg1, arg2, ap); \
+                va_end(ap); \
+            } \
+            else{ \
+                va_list ap; \
+                va_start(ap, arg2); \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](arg0, arg1, arg2, ap); \
+                va_end(ap); \
+            } \
+        } \
+        if(FUNCNAME##_fake.custom_fake){ \
+            va_list ap; \
+            va_start(ap, arg2); \
+            FUNCNAME##_fake.custom_fake(arg0, arg1, arg2, ap); \
+            va_end(ap); \
+        } \
+        FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VOID_FUNC4_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ...) \
+    DECLARE_FAKE_VOID_FUNC4_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ...) \
+    DEFINE_FAKE_VOID_FUNC4_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ...) \
+
+
+#define DECLARE_FAKE_VOID_FUNC5_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ...) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_ARG(ARG0_TYPE, 0, FUNCNAME) \
+        DECLARE_ARG(ARG1_TYPE, 1, FUNCNAME) \
+        DECLARE_ARG(ARG2_TYPE, 2, FUNCNAME) \
+        DECLARE_ARG(ARG3_TYPE, 3, FUNCNAME) \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, custom_fake, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, va_list ap); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, *custom_fake_seq, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, va_list ap); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VOID_FUNC5_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ...) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(ARG0_TYPE arg0, ARG1_TYPE arg1, ARG2_TYPE arg2, ARG3_TYPE arg3, ...){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        SAVE_ARG(FUNCNAME, 0); \
+        SAVE_ARG(FUNCNAME, 1); \
+        SAVE_ARG(FUNCNAME, 2); \
+        SAVE_ARG(FUNCNAME, 3); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+            SAVE_ARG_HISTORY(FUNCNAME, 0); \
+            SAVE_ARG_HISTORY(FUNCNAME, 1); \
+            SAVE_ARG_HISTORY(FUNCNAME, 2); \
+            SAVE_ARG_HISTORY(FUNCNAME, 3); \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                va_list ap; \
+                va_start(ap, arg3); \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](arg0, arg1, arg2, arg3, ap); \
+                va_end(ap); \
+            } \
+            else{ \
+                va_list ap; \
+                va_start(ap, arg3); \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](arg0, arg1, arg2, arg3, ap); \
+                va_end(ap); \
+            } \
+        } \
+        if(FUNCNAME##_fake.custom_fake){ \
+            va_list ap; \
+            va_start(ap, arg3); \
+            FUNCNAME##_fake.custom_fake(arg0, arg1, arg2, arg3, ap); \
+            va_end(ap); \
+        } \
+        FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VOID_FUNC5_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ...) \
+    DECLARE_FAKE_VOID_FUNC5_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ...) \
+    DEFINE_FAKE_VOID_FUNC5_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ...) \
+
+
+#define DECLARE_FAKE_VOID_FUNC6_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ...) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_ARG(ARG0_TYPE, 0, FUNCNAME) \
+        DECLARE_ARG(ARG1_TYPE, 1, FUNCNAME) \
+        DECLARE_ARG(ARG2_TYPE, 2, FUNCNAME) \
+        DECLARE_ARG(ARG3_TYPE, 3, FUNCNAME) \
+        DECLARE_ARG(ARG4_TYPE, 4, FUNCNAME) \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, custom_fake, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, va_list ap); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, *custom_fake_seq, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, va_list ap); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VOID_FUNC6_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ...) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(ARG0_TYPE arg0, ARG1_TYPE arg1, ARG2_TYPE arg2, ARG3_TYPE arg3, ARG4_TYPE arg4, ...){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        SAVE_ARG(FUNCNAME, 0); \
+        SAVE_ARG(FUNCNAME, 1); \
+        SAVE_ARG(FUNCNAME, 2); \
+        SAVE_ARG(FUNCNAME, 3); \
+        SAVE_ARG(FUNCNAME, 4); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+            SAVE_ARG_HISTORY(FUNCNAME, 0); \
+            SAVE_ARG_HISTORY(FUNCNAME, 1); \
+            SAVE_ARG_HISTORY(FUNCNAME, 2); \
+            SAVE_ARG_HISTORY(FUNCNAME, 3); \
+            SAVE_ARG_HISTORY(FUNCNAME, 4); \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                va_list ap; \
+                va_start(ap, arg4); \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](arg0, arg1, arg2, arg3, arg4, ap); \
+                va_end(ap); \
+            } \
+            else{ \
+                va_list ap; \
+                va_start(ap, arg4); \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](arg0, arg1, arg2, arg3, arg4, ap); \
+                va_end(ap); \
+            } \
+        } \
+        if(FUNCNAME##_fake.custom_fake){ \
+            va_list ap; \
+            va_start(ap, arg4); \
+            FUNCNAME##_fake.custom_fake(arg0, arg1, arg2, arg3, arg4, ap); \
+            va_end(ap); \
+        } \
+        FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VOID_FUNC6_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ...) \
+    DECLARE_FAKE_VOID_FUNC6_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ...) \
+    DEFINE_FAKE_VOID_FUNC6_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ...) \
+
+
+#define DECLARE_FAKE_VOID_FUNC7_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ...) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_ARG(ARG0_TYPE, 0, FUNCNAME) \
+        DECLARE_ARG(ARG1_TYPE, 1, FUNCNAME) \
+        DECLARE_ARG(ARG2_TYPE, 2, FUNCNAME) \
+        DECLARE_ARG(ARG3_TYPE, 3, FUNCNAME) \
+        DECLARE_ARG(ARG4_TYPE, 4, FUNCNAME) \
+        DECLARE_ARG(ARG5_TYPE, 5, FUNCNAME) \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, custom_fake, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, va_list ap); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, *custom_fake_seq, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, va_list ap); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VOID_FUNC7_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ...) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(ARG0_TYPE arg0, ARG1_TYPE arg1, ARG2_TYPE arg2, ARG3_TYPE arg3, ARG4_TYPE arg4, ARG5_TYPE arg5, ...){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        SAVE_ARG(FUNCNAME, 0); \
+        SAVE_ARG(FUNCNAME, 1); \
+        SAVE_ARG(FUNCNAME, 2); \
+        SAVE_ARG(FUNCNAME, 3); \
+        SAVE_ARG(FUNCNAME, 4); \
+        SAVE_ARG(FUNCNAME, 5); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+            SAVE_ARG_HISTORY(FUNCNAME, 0); \
+            SAVE_ARG_HISTORY(FUNCNAME, 1); \
+            SAVE_ARG_HISTORY(FUNCNAME, 2); \
+            SAVE_ARG_HISTORY(FUNCNAME, 3); \
+            SAVE_ARG_HISTORY(FUNCNAME, 4); \
+            SAVE_ARG_HISTORY(FUNCNAME, 5); \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                va_list ap; \
+                va_start(ap, arg5); \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](arg0, arg1, arg2, arg3, arg4, arg5, ap); \
+                va_end(ap); \
+            } \
+            else{ \
+                va_list ap; \
+                va_start(ap, arg5); \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](arg0, arg1, arg2, arg3, arg4, arg5, ap); \
+                va_end(ap); \
+            } \
+        } \
+        if(FUNCNAME##_fake.custom_fake){ \
+            va_list ap; \
+            va_start(ap, arg5); \
+            FUNCNAME##_fake.custom_fake(arg0, arg1, arg2, arg3, arg4, arg5, ap); \
+            va_end(ap); \
+        } \
+        FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VOID_FUNC7_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ...) \
+    DECLARE_FAKE_VOID_FUNC7_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ...) \
+    DEFINE_FAKE_VOID_FUNC7_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ...) \
+
+
+#define DECLARE_FAKE_VOID_FUNC8_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ...) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_ARG(ARG0_TYPE, 0, FUNCNAME) \
+        DECLARE_ARG(ARG1_TYPE, 1, FUNCNAME) \
+        DECLARE_ARG(ARG2_TYPE, 2, FUNCNAME) \
+        DECLARE_ARG(ARG3_TYPE, 3, FUNCNAME) \
+        DECLARE_ARG(ARG4_TYPE, 4, FUNCNAME) \
+        DECLARE_ARG(ARG5_TYPE, 5, FUNCNAME) \
+        DECLARE_ARG(ARG6_TYPE, 6, FUNCNAME) \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, custom_fake, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, va_list ap); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, *custom_fake_seq, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, va_list ap); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VOID_FUNC8_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ...) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(ARG0_TYPE arg0, ARG1_TYPE arg1, ARG2_TYPE arg2, ARG3_TYPE arg3, ARG4_TYPE arg4, ARG5_TYPE arg5, ARG6_TYPE arg6, ...){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        SAVE_ARG(FUNCNAME, 0); \
+        SAVE_ARG(FUNCNAME, 1); \
+        SAVE_ARG(FUNCNAME, 2); \
+        SAVE_ARG(FUNCNAME, 3); \
+        SAVE_ARG(FUNCNAME, 4); \
+        SAVE_ARG(FUNCNAME, 5); \
+        SAVE_ARG(FUNCNAME, 6); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+            SAVE_ARG_HISTORY(FUNCNAME, 0); \
+            SAVE_ARG_HISTORY(FUNCNAME, 1); \
+            SAVE_ARG_HISTORY(FUNCNAME, 2); \
+            SAVE_ARG_HISTORY(FUNCNAME, 3); \
+            SAVE_ARG_HISTORY(FUNCNAME, 4); \
+            SAVE_ARG_HISTORY(FUNCNAME, 5); \
+            SAVE_ARG_HISTORY(FUNCNAME, 6); \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                va_list ap; \
+                va_start(ap, arg6); \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](arg0, arg1, arg2, arg3, arg4, arg5, arg6, ap); \
+                va_end(ap); \
+            } \
+            else{ \
+                va_list ap; \
+                va_start(ap, arg6); \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](arg0, arg1, arg2, arg3, arg4, arg5, arg6, ap); \
+                va_end(ap); \
+            } \
+        } \
+        if(FUNCNAME##_fake.custom_fake){ \
+            va_list ap; \
+            va_start(ap, arg6); \
+            FUNCNAME##_fake.custom_fake(arg0, arg1, arg2, arg3, arg4, arg5, arg6, ap); \
+            va_end(ap); \
+        } \
+        FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VOID_FUNC8_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ...) \
+    DECLARE_FAKE_VOID_FUNC8_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ...) \
+    DEFINE_FAKE_VOID_FUNC8_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ...) \
+
+
+#define DECLARE_FAKE_VOID_FUNC9_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ...) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_ARG(ARG0_TYPE, 0, FUNCNAME) \
+        DECLARE_ARG(ARG1_TYPE, 1, FUNCNAME) \
+        DECLARE_ARG(ARG2_TYPE, 2, FUNCNAME) \
+        DECLARE_ARG(ARG3_TYPE, 3, FUNCNAME) \
+        DECLARE_ARG(ARG4_TYPE, 4, FUNCNAME) \
+        DECLARE_ARG(ARG5_TYPE, 5, FUNCNAME) \
+        DECLARE_ARG(ARG6_TYPE, 6, FUNCNAME) \
+        DECLARE_ARG(ARG7_TYPE, 7, FUNCNAME) \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, custom_fake, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, va_list ap); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, *custom_fake_seq, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, va_list ap); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VOID_FUNC9_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ...) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(ARG0_TYPE arg0, ARG1_TYPE arg1, ARG2_TYPE arg2, ARG3_TYPE arg3, ARG4_TYPE arg4, ARG5_TYPE arg5, ARG6_TYPE arg6, ARG7_TYPE arg7, ...){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        SAVE_ARG(FUNCNAME, 0); \
+        SAVE_ARG(FUNCNAME, 1); \
+        SAVE_ARG(FUNCNAME, 2); \
+        SAVE_ARG(FUNCNAME, 3); \
+        SAVE_ARG(FUNCNAME, 4); \
+        SAVE_ARG(FUNCNAME, 5); \
+        SAVE_ARG(FUNCNAME, 6); \
+        SAVE_ARG(FUNCNAME, 7); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+            SAVE_ARG_HISTORY(FUNCNAME, 0); \
+            SAVE_ARG_HISTORY(FUNCNAME, 1); \
+            SAVE_ARG_HISTORY(FUNCNAME, 2); \
+            SAVE_ARG_HISTORY(FUNCNAME, 3); \
+            SAVE_ARG_HISTORY(FUNCNAME, 4); \
+            SAVE_ARG_HISTORY(FUNCNAME, 5); \
+            SAVE_ARG_HISTORY(FUNCNAME, 6); \
+            SAVE_ARG_HISTORY(FUNCNAME, 7); \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                va_list ap; \
+                va_start(ap, arg7); \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, ap); \
+                va_end(ap); \
+            } \
+            else{ \
+                va_list ap; \
+                va_start(ap, arg7); \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, ap); \
+                va_end(ap); \
+            } \
+        } \
+        if(FUNCNAME##_fake.custom_fake){ \
+            va_list ap; \
+            va_start(ap, arg7); \
+            FUNCNAME##_fake.custom_fake(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, ap); \
+            va_end(ap); \
+        } \
+        FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VOID_FUNC9_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ...) \
+    DECLARE_FAKE_VOID_FUNC9_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ...) \
+    DEFINE_FAKE_VOID_FUNC9_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ...) \
+
+
+#define DECLARE_FAKE_VOID_FUNC10_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ...) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_ARG(ARG0_TYPE, 0, FUNCNAME) \
+        DECLARE_ARG(ARG1_TYPE, 1, FUNCNAME) \
+        DECLARE_ARG(ARG2_TYPE, 2, FUNCNAME) \
+        DECLARE_ARG(ARG3_TYPE, 3, FUNCNAME) \
+        DECLARE_ARG(ARG4_TYPE, 4, FUNCNAME) \
+        DECLARE_ARG(ARG5_TYPE, 5, FUNCNAME) \
+        DECLARE_ARG(ARG6_TYPE, 6, FUNCNAME) \
+        DECLARE_ARG(ARG7_TYPE, 7, FUNCNAME) \
+        DECLARE_ARG(ARG8_TYPE, 8, FUNCNAME) \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, custom_fake, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, va_list ap); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, *custom_fake_seq, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, va_list ap); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VOID_FUNC10_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ...) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(ARG0_TYPE arg0, ARG1_TYPE arg1, ARG2_TYPE arg2, ARG3_TYPE arg3, ARG4_TYPE arg4, ARG5_TYPE arg5, ARG6_TYPE arg6, ARG7_TYPE arg7, ARG8_TYPE arg8, ...){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        SAVE_ARG(FUNCNAME, 0); \
+        SAVE_ARG(FUNCNAME, 1); \
+        SAVE_ARG(FUNCNAME, 2); \
+        SAVE_ARG(FUNCNAME, 3); \
+        SAVE_ARG(FUNCNAME, 4); \
+        SAVE_ARG(FUNCNAME, 5); \
+        SAVE_ARG(FUNCNAME, 6); \
+        SAVE_ARG(FUNCNAME, 7); \
+        SAVE_ARG(FUNCNAME, 8); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+            SAVE_ARG_HISTORY(FUNCNAME, 0); \
+            SAVE_ARG_HISTORY(FUNCNAME, 1); \
+            SAVE_ARG_HISTORY(FUNCNAME, 2); \
+            SAVE_ARG_HISTORY(FUNCNAME, 3); \
+            SAVE_ARG_HISTORY(FUNCNAME, 4); \
+            SAVE_ARG_HISTORY(FUNCNAME, 5); \
+            SAVE_ARG_HISTORY(FUNCNAME, 6); \
+            SAVE_ARG_HISTORY(FUNCNAME, 7); \
+            SAVE_ARG_HISTORY(FUNCNAME, 8); \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                va_list ap; \
+                va_start(ap, arg8); \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, ap); \
+                va_end(ap); \
+            } \
+            else{ \
+                va_list ap; \
+                va_start(ap, arg8); \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, ap); \
+                va_end(ap); \
+            } \
+        } \
+        if(FUNCNAME##_fake.custom_fake){ \
+            va_list ap; \
+            va_start(ap, arg8); \
+            FUNCNAME##_fake.custom_fake(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, ap); \
+            va_end(ap); \
+        } \
+        FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VOID_FUNC10_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ...) \
+    DECLARE_FAKE_VOID_FUNC10_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ...) \
+    DEFINE_FAKE_VOID_FUNC10_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ...) \
+
+
+#define DECLARE_FAKE_VOID_FUNC11_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ...) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_ARG(ARG0_TYPE, 0, FUNCNAME) \
+        DECLARE_ARG(ARG1_TYPE, 1, FUNCNAME) \
+        DECLARE_ARG(ARG2_TYPE, 2, FUNCNAME) \
+        DECLARE_ARG(ARG3_TYPE, 3, FUNCNAME) \
+        DECLARE_ARG(ARG4_TYPE, 4, FUNCNAME) \
+        DECLARE_ARG(ARG5_TYPE, 5, FUNCNAME) \
+        DECLARE_ARG(ARG6_TYPE, 6, FUNCNAME) \
+        DECLARE_ARG(ARG7_TYPE, 7, FUNCNAME) \
+        DECLARE_ARG(ARG8_TYPE, 8, FUNCNAME) \
+        DECLARE_ARG(ARG9_TYPE, 9, FUNCNAME) \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, custom_fake, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, va_list ap); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, *custom_fake_seq, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, va_list ap); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VOID_FUNC11_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ...) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(ARG0_TYPE arg0, ARG1_TYPE arg1, ARG2_TYPE arg2, ARG3_TYPE arg3, ARG4_TYPE arg4, ARG5_TYPE arg5, ARG6_TYPE arg6, ARG7_TYPE arg7, ARG8_TYPE arg8, ARG9_TYPE arg9, ...){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        SAVE_ARG(FUNCNAME, 0); \
+        SAVE_ARG(FUNCNAME, 1); \
+        SAVE_ARG(FUNCNAME, 2); \
+        SAVE_ARG(FUNCNAME, 3); \
+        SAVE_ARG(FUNCNAME, 4); \
+        SAVE_ARG(FUNCNAME, 5); \
+        SAVE_ARG(FUNCNAME, 6); \
+        SAVE_ARG(FUNCNAME, 7); \
+        SAVE_ARG(FUNCNAME, 8); \
+        SAVE_ARG(FUNCNAME, 9); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+            SAVE_ARG_HISTORY(FUNCNAME, 0); \
+            SAVE_ARG_HISTORY(FUNCNAME, 1); \
+            SAVE_ARG_HISTORY(FUNCNAME, 2); \
+            SAVE_ARG_HISTORY(FUNCNAME, 3); \
+            SAVE_ARG_HISTORY(FUNCNAME, 4); \
+            SAVE_ARG_HISTORY(FUNCNAME, 5); \
+            SAVE_ARG_HISTORY(FUNCNAME, 6); \
+            SAVE_ARG_HISTORY(FUNCNAME, 7); \
+            SAVE_ARG_HISTORY(FUNCNAME, 8); \
+            SAVE_ARG_HISTORY(FUNCNAME, 9); \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                va_list ap; \
+                va_start(ap, arg9); \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, ap); \
+                va_end(ap); \
+            } \
+            else{ \
+                va_list ap; \
+                va_start(ap, arg9); \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, ap); \
+                va_end(ap); \
+            } \
+        } \
+        if(FUNCNAME##_fake.custom_fake){ \
+            va_list ap; \
+            va_start(ap, arg9); \
+            FUNCNAME##_fake.custom_fake(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, ap); \
+            va_end(ap); \
+        } \
+        FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VOID_FUNC11_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ...) \
+    DECLARE_FAKE_VOID_FUNC11_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ...) \
+    DEFINE_FAKE_VOID_FUNC11_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ...) \
+
+
+#define DECLARE_FAKE_VOID_FUNC12_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ...) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_ARG(ARG0_TYPE, 0, FUNCNAME) \
+        DECLARE_ARG(ARG1_TYPE, 1, FUNCNAME) \
+        DECLARE_ARG(ARG2_TYPE, 2, FUNCNAME) \
+        DECLARE_ARG(ARG3_TYPE, 3, FUNCNAME) \
+        DECLARE_ARG(ARG4_TYPE, 4, FUNCNAME) \
+        DECLARE_ARG(ARG5_TYPE, 5, FUNCNAME) \
+        DECLARE_ARG(ARG6_TYPE, 6, FUNCNAME) \
+        DECLARE_ARG(ARG7_TYPE, 7, FUNCNAME) \
+        DECLARE_ARG(ARG8_TYPE, 8, FUNCNAME) \
+        DECLARE_ARG(ARG9_TYPE, 9, FUNCNAME) \
+        DECLARE_ARG(ARG10_TYPE, 10, FUNCNAME) \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, custom_fake, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, va_list ap); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, *custom_fake_seq, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, va_list ap); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VOID_FUNC12_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ...) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(ARG0_TYPE arg0, ARG1_TYPE arg1, ARG2_TYPE arg2, ARG3_TYPE arg3, ARG4_TYPE arg4, ARG5_TYPE arg5, ARG6_TYPE arg6, ARG7_TYPE arg7, ARG8_TYPE arg8, ARG9_TYPE arg9, ARG10_TYPE arg10, ...){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        SAVE_ARG(FUNCNAME, 0); \
+        SAVE_ARG(FUNCNAME, 1); \
+        SAVE_ARG(FUNCNAME, 2); \
+        SAVE_ARG(FUNCNAME, 3); \
+        SAVE_ARG(FUNCNAME, 4); \
+        SAVE_ARG(FUNCNAME, 5); \
+        SAVE_ARG(FUNCNAME, 6); \
+        SAVE_ARG(FUNCNAME, 7); \
+        SAVE_ARG(FUNCNAME, 8); \
+        SAVE_ARG(FUNCNAME, 9); \
+        SAVE_ARG(FUNCNAME, 10); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+            SAVE_ARG_HISTORY(FUNCNAME, 0); \
+            SAVE_ARG_HISTORY(FUNCNAME, 1); \
+            SAVE_ARG_HISTORY(FUNCNAME, 2); \
+            SAVE_ARG_HISTORY(FUNCNAME, 3); \
+            SAVE_ARG_HISTORY(FUNCNAME, 4); \
+            SAVE_ARG_HISTORY(FUNCNAME, 5); \
+            SAVE_ARG_HISTORY(FUNCNAME, 6); \
+            SAVE_ARG_HISTORY(FUNCNAME, 7); \
+            SAVE_ARG_HISTORY(FUNCNAME, 8); \
+            SAVE_ARG_HISTORY(FUNCNAME, 9); \
+            SAVE_ARG_HISTORY(FUNCNAME, 10); \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                va_list ap; \
+                va_start(ap, arg10); \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, ap); \
+                va_end(ap); \
+            } \
+            else{ \
+                va_list ap; \
+                va_start(ap, arg10); \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, ap); \
+                va_end(ap); \
+            } \
+        } \
+        if(FUNCNAME##_fake.custom_fake){ \
+            va_list ap; \
+            va_start(ap, arg10); \
+            FUNCNAME##_fake.custom_fake(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, ap); \
+            va_end(ap); \
+        } \
+        FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VOID_FUNC12_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ...) \
+    DECLARE_FAKE_VOID_FUNC12_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ...) \
+    DEFINE_FAKE_VOID_FUNC12_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ...) \
+
+
+#define DECLARE_FAKE_VOID_FUNC13_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ...) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_ARG(ARG0_TYPE, 0, FUNCNAME) \
+        DECLARE_ARG(ARG1_TYPE, 1, FUNCNAME) \
+        DECLARE_ARG(ARG2_TYPE, 2, FUNCNAME) \
+        DECLARE_ARG(ARG3_TYPE, 3, FUNCNAME) \
+        DECLARE_ARG(ARG4_TYPE, 4, FUNCNAME) \
+        DECLARE_ARG(ARG5_TYPE, 5, FUNCNAME) \
+        DECLARE_ARG(ARG6_TYPE, 6, FUNCNAME) \
+        DECLARE_ARG(ARG7_TYPE, 7, FUNCNAME) \
+        DECLARE_ARG(ARG8_TYPE, 8, FUNCNAME) \
+        DECLARE_ARG(ARG9_TYPE, 9, FUNCNAME) \
+        DECLARE_ARG(ARG10_TYPE, 10, FUNCNAME) \
+        DECLARE_ARG(ARG11_TYPE, 11, FUNCNAME) \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, custom_fake, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, va_list ap); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, *custom_fake_seq, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, va_list ap); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VOID_FUNC13_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ...) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(ARG0_TYPE arg0, ARG1_TYPE arg1, ARG2_TYPE arg2, ARG3_TYPE arg3, ARG4_TYPE arg4, ARG5_TYPE arg5, ARG6_TYPE arg6, ARG7_TYPE arg7, ARG8_TYPE arg8, ARG9_TYPE arg9, ARG10_TYPE arg10, ARG11_TYPE arg11, ...){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        SAVE_ARG(FUNCNAME, 0); \
+        SAVE_ARG(FUNCNAME, 1); \
+        SAVE_ARG(FUNCNAME, 2); \
+        SAVE_ARG(FUNCNAME, 3); \
+        SAVE_ARG(FUNCNAME, 4); \
+        SAVE_ARG(FUNCNAME, 5); \
+        SAVE_ARG(FUNCNAME, 6); \
+        SAVE_ARG(FUNCNAME, 7); \
+        SAVE_ARG(FUNCNAME, 8); \
+        SAVE_ARG(FUNCNAME, 9); \
+        SAVE_ARG(FUNCNAME, 10); \
+        SAVE_ARG(FUNCNAME, 11); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+            SAVE_ARG_HISTORY(FUNCNAME, 0); \
+            SAVE_ARG_HISTORY(FUNCNAME, 1); \
+            SAVE_ARG_HISTORY(FUNCNAME, 2); \
+            SAVE_ARG_HISTORY(FUNCNAME, 3); \
+            SAVE_ARG_HISTORY(FUNCNAME, 4); \
+            SAVE_ARG_HISTORY(FUNCNAME, 5); \
+            SAVE_ARG_HISTORY(FUNCNAME, 6); \
+            SAVE_ARG_HISTORY(FUNCNAME, 7); \
+            SAVE_ARG_HISTORY(FUNCNAME, 8); \
+            SAVE_ARG_HISTORY(FUNCNAME, 9); \
+            SAVE_ARG_HISTORY(FUNCNAME, 10); \
+            SAVE_ARG_HISTORY(FUNCNAME, 11); \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                va_list ap; \
+                va_start(ap, arg11); \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, ap); \
+                va_end(ap); \
+            } \
+            else{ \
+                va_list ap; \
+                va_start(ap, arg11); \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, ap); \
+                va_end(ap); \
+            } \
+        } \
+        if(FUNCNAME##_fake.custom_fake){ \
+            va_list ap; \
+            va_start(ap, arg11); \
+            FUNCNAME##_fake.custom_fake(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, ap); \
+            va_end(ap); \
+        } \
+        FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VOID_FUNC13_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ...) \
+    DECLARE_FAKE_VOID_FUNC13_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ...) \
+    DEFINE_FAKE_VOID_FUNC13_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ...) \
+
+
+#define DECLARE_FAKE_VOID_FUNC14_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ...) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_ARG(ARG0_TYPE, 0, FUNCNAME) \
+        DECLARE_ARG(ARG1_TYPE, 1, FUNCNAME) \
+        DECLARE_ARG(ARG2_TYPE, 2, FUNCNAME) \
+        DECLARE_ARG(ARG3_TYPE, 3, FUNCNAME) \
+        DECLARE_ARG(ARG4_TYPE, 4, FUNCNAME) \
+        DECLARE_ARG(ARG5_TYPE, 5, FUNCNAME) \
+        DECLARE_ARG(ARG6_TYPE, 6, FUNCNAME) \
+        DECLARE_ARG(ARG7_TYPE, 7, FUNCNAME) \
+        DECLARE_ARG(ARG8_TYPE, 8, FUNCNAME) \
+        DECLARE_ARG(ARG9_TYPE, 9, FUNCNAME) \
+        DECLARE_ARG(ARG10_TYPE, 10, FUNCNAME) \
+        DECLARE_ARG(ARG11_TYPE, 11, FUNCNAME) \
+        DECLARE_ARG(ARG12_TYPE, 12, FUNCNAME) \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, custom_fake, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, va_list ap); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, *custom_fake_seq, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, va_list ap); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VOID_FUNC14_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ...) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(ARG0_TYPE arg0, ARG1_TYPE arg1, ARG2_TYPE arg2, ARG3_TYPE arg3, ARG4_TYPE arg4, ARG5_TYPE arg5, ARG6_TYPE arg6, ARG7_TYPE arg7, ARG8_TYPE arg8, ARG9_TYPE arg9, ARG10_TYPE arg10, ARG11_TYPE arg11, ARG12_TYPE arg12, ...){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        SAVE_ARG(FUNCNAME, 0); \
+        SAVE_ARG(FUNCNAME, 1); \
+        SAVE_ARG(FUNCNAME, 2); \
+        SAVE_ARG(FUNCNAME, 3); \
+        SAVE_ARG(FUNCNAME, 4); \
+        SAVE_ARG(FUNCNAME, 5); \
+        SAVE_ARG(FUNCNAME, 6); \
+        SAVE_ARG(FUNCNAME, 7); \
+        SAVE_ARG(FUNCNAME, 8); \
+        SAVE_ARG(FUNCNAME, 9); \
+        SAVE_ARG(FUNCNAME, 10); \
+        SAVE_ARG(FUNCNAME, 11); \
+        SAVE_ARG(FUNCNAME, 12); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+            SAVE_ARG_HISTORY(FUNCNAME, 0); \
+            SAVE_ARG_HISTORY(FUNCNAME, 1); \
+            SAVE_ARG_HISTORY(FUNCNAME, 2); \
+            SAVE_ARG_HISTORY(FUNCNAME, 3); \
+            SAVE_ARG_HISTORY(FUNCNAME, 4); \
+            SAVE_ARG_HISTORY(FUNCNAME, 5); \
+            SAVE_ARG_HISTORY(FUNCNAME, 6); \
+            SAVE_ARG_HISTORY(FUNCNAME, 7); \
+            SAVE_ARG_HISTORY(FUNCNAME, 8); \
+            SAVE_ARG_HISTORY(FUNCNAME, 9); \
+            SAVE_ARG_HISTORY(FUNCNAME, 10); \
+            SAVE_ARG_HISTORY(FUNCNAME, 11); \
+            SAVE_ARG_HISTORY(FUNCNAME, 12); \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                va_list ap; \
+                va_start(ap, arg12); \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, ap); \
+                va_end(ap); \
+            } \
+            else{ \
+                va_list ap; \
+                va_start(ap, arg12); \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, ap); \
+                va_end(ap); \
+            } \
+        } \
+        if(FUNCNAME##_fake.custom_fake){ \
+            va_list ap; \
+            va_start(ap, arg12); \
+            FUNCNAME##_fake.custom_fake(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, ap); \
+            va_end(ap); \
+        } \
+        FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VOID_FUNC14_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ...) \
+    DECLARE_FAKE_VOID_FUNC14_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ...) \
+    DEFINE_FAKE_VOID_FUNC14_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ...) \
+
+
+#define DECLARE_FAKE_VOID_FUNC15_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ...) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_ARG(ARG0_TYPE, 0, FUNCNAME) \
+        DECLARE_ARG(ARG1_TYPE, 1, FUNCNAME) \
+        DECLARE_ARG(ARG2_TYPE, 2, FUNCNAME) \
+        DECLARE_ARG(ARG3_TYPE, 3, FUNCNAME) \
+        DECLARE_ARG(ARG4_TYPE, 4, FUNCNAME) \
+        DECLARE_ARG(ARG5_TYPE, 5, FUNCNAME) \
+        DECLARE_ARG(ARG6_TYPE, 6, FUNCNAME) \
+        DECLARE_ARG(ARG7_TYPE, 7, FUNCNAME) \
+        DECLARE_ARG(ARG8_TYPE, 8, FUNCNAME) \
+        DECLARE_ARG(ARG9_TYPE, 9, FUNCNAME) \
+        DECLARE_ARG(ARG10_TYPE, 10, FUNCNAME) \
+        DECLARE_ARG(ARG11_TYPE, 11, FUNCNAME) \
+        DECLARE_ARG(ARG12_TYPE, 12, FUNCNAME) \
+        DECLARE_ARG(ARG13_TYPE, 13, FUNCNAME) \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, custom_fake, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, va_list ap); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, *custom_fake_seq, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, va_list ap); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VOID_FUNC15_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ...) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(ARG0_TYPE arg0, ARG1_TYPE arg1, ARG2_TYPE arg2, ARG3_TYPE arg3, ARG4_TYPE arg4, ARG5_TYPE arg5, ARG6_TYPE arg6, ARG7_TYPE arg7, ARG8_TYPE arg8, ARG9_TYPE arg9, ARG10_TYPE arg10, ARG11_TYPE arg11, ARG12_TYPE arg12, ARG13_TYPE arg13, ...){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        SAVE_ARG(FUNCNAME, 0); \
+        SAVE_ARG(FUNCNAME, 1); \
+        SAVE_ARG(FUNCNAME, 2); \
+        SAVE_ARG(FUNCNAME, 3); \
+        SAVE_ARG(FUNCNAME, 4); \
+        SAVE_ARG(FUNCNAME, 5); \
+        SAVE_ARG(FUNCNAME, 6); \
+        SAVE_ARG(FUNCNAME, 7); \
+        SAVE_ARG(FUNCNAME, 8); \
+        SAVE_ARG(FUNCNAME, 9); \
+        SAVE_ARG(FUNCNAME, 10); \
+        SAVE_ARG(FUNCNAME, 11); \
+        SAVE_ARG(FUNCNAME, 12); \
+        SAVE_ARG(FUNCNAME, 13); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+            SAVE_ARG_HISTORY(FUNCNAME, 0); \
+            SAVE_ARG_HISTORY(FUNCNAME, 1); \
+            SAVE_ARG_HISTORY(FUNCNAME, 2); \
+            SAVE_ARG_HISTORY(FUNCNAME, 3); \
+            SAVE_ARG_HISTORY(FUNCNAME, 4); \
+            SAVE_ARG_HISTORY(FUNCNAME, 5); \
+            SAVE_ARG_HISTORY(FUNCNAME, 6); \
+            SAVE_ARG_HISTORY(FUNCNAME, 7); \
+            SAVE_ARG_HISTORY(FUNCNAME, 8); \
+            SAVE_ARG_HISTORY(FUNCNAME, 9); \
+            SAVE_ARG_HISTORY(FUNCNAME, 10); \
+            SAVE_ARG_HISTORY(FUNCNAME, 11); \
+            SAVE_ARG_HISTORY(FUNCNAME, 12); \
+            SAVE_ARG_HISTORY(FUNCNAME, 13); \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                va_list ap; \
+                va_start(ap, arg13); \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, ap); \
+                va_end(ap); \
+            } \
+            else{ \
+                va_list ap; \
+                va_start(ap, arg13); \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, ap); \
+                va_end(ap); \
+            } \
+        } \
+        if(FUNCNAME##_fake.custom_fake){ \
+            va_list ap; \
+            va_start(ap, arg13); \
+            FUNCNAME##_fake.custom_fake(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, ap); \
+            va_end(ap); \
+        } \
+        FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VOID_FUNC15_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ...) \
+    DECLARE_FAKE_VOID_FUNC15_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ...) \
+    DEFINE_FAKE_VOID_FUNC15_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ...) \
+
+
+#define DECLARE_FAKE_VOID_FUNC16_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ...) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_ARG(ARG0_TYPE, 0, FUNCNAME) \
+        DECLARE_ARG(ARG1_TYPE, 1, FUNCNAME) \
+        DECLARE_ARG(ARG2_TYPE, 2, FUNCNAME) \
+        DECLARE_ARG(ARG3_TYPE, 3, FUNCNAME) \
+        DECLARE_ARG(ARG4_TYPE, 4, FUNCNAME) \
+        DECLARE_ARG(ARG5_TYPE, 5, FUNCNAME) \
+        DECLARE_ARG(ARG6_TYPE, 6, FUNCNAME) \
+        DECLARE_ARG(ARG7_TYPE, 7, FUNCNAME) \
+        DECLARE_ARG(ARG8_TYPE, 8, FUNCNAME) \
+        DECLARE_ARG(ARG9_TYPE, 9, FUNCNAME) \
+        DECLARE_ARG(ARG10_TYPE, 10, FUNCNAME) \
+        DECLARE_ARG(ARG11_TYPE, 11, FUNCNAME) \
+        DECLARE_ARG(ARG12_TYPE, 12, FUNCNAME) \
+        DECLARE_ARG(ARG13_TYPE, 13, FUNCNAME) \
+        DECLARE_ARG(ARG14_TYPE, 14, FUNCNAME) \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, custom_fake, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, va_list ap); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, *custom_fake_seq, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, va_list ap); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VOID_FUNC16_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ...) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(ARG0_TYPE arg0, ARG1_TYPE arg1, ARG2_TYPE arg2, ARG3_TYPE arg3, ARG4_TYPE arg4, ARG5_TYPE arg5, ARG6_TYPE arg6, ARG7_TYPE arg7, ARG8_TYPE arg8, ARG9_TYPE arg9, ARG10_TYPE arg10, ARG11_TYPE arg11, ARG12_TYPE arg12, ARG13_TYPE arg13, ARG14_TYPE arg14, ...){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        SAVE_ARG(FUNCNAME, 0); \
+        SAVE_ARG(FUNCNAME, 1); \
+        SAVE_ARG(FUNCNAME, 2); \
+        SAVE_ARG(FUNCNAME, 3); \
+        SAVE_ARG(FUNCNAME, 4); \
+        SAVE_ARG(FUNCNAME, 5); \
+        SAVE_ARG(FUNCNAME, 6); \
+        SAVE_ARG(FUNCNAME, 7); \
+        SAVE_ARG(FUNCNAME, 8); \
+        SAVE_ARG(FUNCNAME, 9); \
+        SAVE_ARG(FUNCNAME, 10); \
+        SAVE_ARG(FUNCNAME, 11); \
+        SAVE_ARG(FUNCNAME, 12); \
+        SAVE_ARG(FUNCNAME, 13); \
+        SAVE_ARG(FUNCNAME, 14); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+            SAVE_ARG_HISTORY(FUNCNAME, 0); \
+            SAVE_ARG_HISTORY(FUNCNAME, 1); \
+            SAVE_ARG_HISTORY(FUNCNAME, 2); \
+            SAVE_ARG_HISTORY(FUNCNAME, 3); \
+            SAVE_ARG_HISTORY(FUNCNAME, 4); \
+            SAVE_ARG_HISTORY(FUNCNAME, 5); \
+            SAVE_ARG_HISTORY(FUNCNAME, 6); \
+            SAVE_ARG_HISTORY(FUNCNAME, 7); \
+            SAVE_ARG_HISTORY(FUNCNAME, 8); \
+            SAVE_ARG_HISTORY(FUNCNAME, 9); \
+            SAVE_ARG_HISTORY(FUNCNAME, 10); \
+            SAVE_ARG_HISTORY(FUNCNAME, 11); \
+            SAVE_ARG_HISTORY(FUNCNAME, 12); \
+            SAVE_ARG_HISTORY(FUNCNAME, 13); \
+            SAVE_ARG_HISTORY(FUNCNAME, 14); \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                va_list ap; \
+                va_start(ap, arg14); \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, ap); \
+                va_end(ap); \
+            } \
+            else{ \
+                va_list ap; \
+                va_start(ap, arg14); \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, ap); \
+                va_end(ap); \
+            } \
+        } \
+        if(FUNCNAME##_fake.custom_fake){ \
+            va_list ap; \
+            va_start(ap, arg14); \
+            FUNCNAME##_fake.custom_fake(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, ap); \
+            va_end(ap); \
+        } \
+        FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VOID_FUNC16_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ...) \
+    DECLARE_FAKE_VOID_FUNC16_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ...) \
+    DEFINE_FAKE_VOID_FUNC16_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ...) \
+
+
+#define DECLARE_FAKE_VOID_FUNC17_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ...) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_ARG(ARG0_TYPE, 0, FUNCNAME) \
+        DECLARE_ARG(ARG1_TYPE, 1, FUNCNAME) \
+        DECLARE_ARG(ARG2_TYPE, 2, FUNCNAME) \
+        DECLARE_ARG(ARG3_TYPE, 3, FUNCNAME) \
+        DECLARE_ARG(ARG4_TYPE, 4, FUNCNAME) \
+        DECLARE_ARG(ARG5_TYPE, 5, FUNCNAME) \
+        DECLARE_ARG(ARG6_TYPE, 6, FUNCNAME) \
+        DECLARE_ARG(ARG7_TYPE, 7, FUNCNAME) \
+        DECLARE_ARG(ARG8_TYPE, 8, FUNCNAME) \
+        DECLARE_ARG(ARG9_TYPE, 9, FUNCNAME) \
+        DECLARE_ARG(ARG10_TYPE, 10, FUNCNAME) \
+        DECLARE_ARG(ARG11_TYPE, 11, FUNCNAME) \
+        DECLARE_ARG(ARG12_TYPE, 12, FUNCNAME) \
+        DECLARE_ARG(ARG13_TYPE, 13, FUNCNAME) \
+        DECLARE_ARG(ARG14_TYPE, 14, FUNCNAME) \
+        DECLARE_ARG(ARG15_TYPE, 15, FUNCNAME) \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, custom_fake, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, va_list ap); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, *custom_fake_seq, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, va_list ap); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VOID_FUNC17_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ...) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(ARG0_TYPE arg0, ARG1_TYPE arg1, ARG2_TYPE arg2, ARG3_TYPE arg3, ARG4_TYPE arg4, ARG5_TYPE arg5, ARG6_TYPE arg6, ARG7_TYPE arg7, ARG8_TYPE arg8, ARG9_TYPE arg9, ARG10_TYPE arg10, ARG11_TYPE arg11, ARG12_TYPE arg12, ARG13_TYPE arg13, ARG14_TYPE arg14, ARG15_TYPE arg15, ...){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        SAVE_ARG(FUNCNAME, 0); \
+        SAVE_ARG(FUNCNAME, 1); \
+        SAVE_ARG(FUNCNAME, 2); \
+        SAVE_ARG(FUNCNAME, 3); \
+        SAVE_ARG(FUNCNAME, 4); \
+        SAVE_ARG(FUNCNAME, 5); \
+        SAVE_ARG(FUNCNAME, 6); \
+        SAVE_ARG(FUNCNAME, 7); \
+        SAVE_ARG(FUNCNAME, 8); \
+        SAVE_ARG(FUNCNAME, 9); \
+        SAVE_ARG(FUNCNAME, 10); \
+        SAVE_ARG(FUNCNAME, 11); \
+        SAVE_ARG(FUNCNAME, 12); \
+        SAVE_ARG(FUNCNAME, 13); \
+        SAVE_ARG(FUNCNAME, 14); \
+        SAVE_ARG(FUNCNAME, 15); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+            SAVE_ARG_HISTORY(FUNCNAME, 0); \
+            SAVE_ARG_HISTORY(FUNCNAME, 1); \
+            SAVE_ARG_HISTORY(FUNCNAME, 2); \
+            SAVE_ARG_HISTORY(FUNCNAME, 3); \
+            SAVE_ARG_HISTORY(FUNCNAME, 4); \
+            SAVE_ARG_HISTORY(FUNCNAME, 5); \
+            SAVE_ARG_HISTORY(FUNCNAME, 6); \
+            SAVE_ARG_HISTORY(FUNCNAME, 7); \
+            SAVE_ARG_HISTORY(FUNCNAME, 8); \
+            SAVE_ARG_HISTORY(FUNCNAME, 9); \
+            SAVE_ARG_HISTORY(FUNCNAME, 10); \
+            SAVE_ARG_HISTORY(FUNCNAME, 11); \
+            SAVE_ARG_HISTORY(FUNCNAME, 12); \
+            SAVE_ARG_HISTORY(FUNCNAME, 13); \
+            SAVE_ARG_HISTORY(FUNCNAME, 14); \
+            SAVE_ARG_HISTORY(FUNCNAME, 15); \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                va_list ap; \
+                va_start(ap, arg15); \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, ap); \
+                va_end(ap); \
+            } \
+            else{ \
+                va_list ap; \
+                va_start(ap, arg15); \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, ap); \
+                va_end(ap); \
+            } \
+        } \
+        if(FUNCNAME##_fake.custom_fake){ \
+            va_list ap; \
+            va_start(ap, arg15); \
+            FUNCNAME##_fake.custom_fake(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, ap); \
+            va_end(ap); \
+        } \
+        FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VOID_FUNC17_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ...) \
+    DECLARE_FAKE_VOID_FUNC17_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ...) \
+    DEFINE_FAKE_VOID_FUNC17_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ...) \
+
+
+#define DECLARE_FAKE_VOID_FUNC18_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ...) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_ARG(ARG0_TYPE, 0, FUNCNAME) \
+        DECLARE_ARG(ARG1_TYPE, 1, FUNCNAME) \
+        DECLARE_ARG(ARG2_TYPE, 2, FUNCNAME) \
+        DECLARE_ARG(ARG3_TYPE, 3, FUNCNAME) \
+        DECLARE_ARG(ARG4_TYPE, 4, FUNCNAME) \
+        DECLARE_ARG(ARG5_TYPE, 5, FUNCNAME) \
+        DECLARE_ARG(ARG6_TYPE, 6, FUNCNAME) \
+        DECLARE_ARG(ARG7_TYPE, 7, FUNCNAME) \
+        DECLARE_ARG(ARG8_TYPE, 8, FUNCNAME) \
+        DECLARE_ARG(ARG9_TYPE, 9, FUNCNAME) \
+        DECLARE_ARG(ARG10_TYPE, 10, FUNCNAME) \
+        DECLARE_ARG(ARG11_TYPE, 11, FUNCNAME) \
+        DECLARE_ARG(ARG12_TYPE, 12, FUNCNAME) \
+        DECLARE_ARG(ARG13_TYPE, 13, FUNCNAME) \
+        DECLARE_ARG(ARG14_TYPE, 14, FUNCNAME) \
+        DECLARE_ARG(ARG15_TYPE, 15, FUNCNAME) \
+        DECLARE_ARG(ARG16_TYPE, 16, FUNCNAME) \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, custom_fake, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, va_list ap); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, *custom_fake_seq, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, va_list ap); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VOID_FUNC18_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ...) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(ARG0_TYPE arg0, ARG1_TYPE arg1, ARG2_TYPE arg2, ARG3_TYPE arg3, ARG4_TYPE arg4, ARG5_TYPE arg5, ARG6_TYPE arg6, ARG7_TYPE arg7, ARG8_TYPE arg8, ARG9_TYPE arg9, ARG10_TYPE arg10, ARG11_TYPE arg11, ARG12_TYPE arg12, ARG13_TYPE arg13, ARG14_TYPE arg14, ARG15_TYPE arg15, ARG16_TYPE arg16, ...){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        SAVE_ARG(FUNCNAME, 0); \
+        SAVE_ARG(FUNCNAME, 1); \
+        SAVE_ARG(FUNCNAME, 2); \
+        SAVE_ARG(FUNCNAME, 3); \
+        SAVE_ARG(FUNCNAME, 4); \
+        SAVE_ARG(FUNCNAME, 5); \
+        SAVE_ARG(FUNCNAME, 6); \
+        SAVE_ARG(FUNCNAME, 7); \
+        SAVE_ARG(FUNCNAME, 8); \
+        SAVE_ARG(FUNCNAME, 9); \
+        SAVE_ARG(FUNCNAME, 10); \
+        SAVE_ARG(FUNCNAME, 11); \
+        SAVE_ARG(FUNCNAME, 12); \
+        SAVE_ARG(FUNCNAME, 13); \
+        SAVE_ARG(FUNCNAME, 14); \
+        SAVE_ARG(FUNCNAME, 15); \
+        SAVE_ARG(FUNCNAME, 16); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+            SAVE_ARG_HISTORY(FUNCNAME, 0); \
+            SAVE_ARG_HISTORY(FUNCNAME, 1); \
+            SAVE_ARG_HISTORY(FUNCNAME, 2); \
+            SAVE_ARG_HISTORY(FUNCNAME, 3); \
+            SAVE_ARG_HISTORY(FUNCNAME, 4); \
+            SAVE_ARG_HISTORY(FUNCNAME, 5); \
+            SAVE_ARG_HISTORY(FUNCNAME, 6); \
+            SAVE_ARG_HISTORY(FUNCNAME, 7); \
+            SAVE_ARG_HISTORY(FUNCNAME, 8); \
+            SAVE_ARG_HISTORY(FUNCNAME, 9); \
+            SAVE_ARG_HISTORY(FUNCNAME, 10); \
+            SAVE_ARG_HISTORY(FUNCNAME, 11); \
+            SAVE_ARG_HISTORY(FUNCNAME, 12); \
+            SAVE_ARG_HISTORY(FUNCNAME, 13); \
+            SAVE_ARG_HISTORY(FUNCNAME, 14); \
+            SAVE_ARG_HISTORY(FUNCNAME, 15); \
+            SAVE_ARG_HISTORY(FUNCNAME, 16); \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                va_list ap; \
+                va_start(ap, arg16); \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, ap); \
+                va_end(ap); \
+            } \
+            else{ \
+                va_list ap; \
+                va_start(ap, arg16); \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, ap); \
+                va_end(ap); \
+            } \
+        } \
+        if(FUNCNAME##_fake.custom_fake){ \
+            va_list ap; \
+            va_start(ap, arg16); \
+            FUNCNAME##_fake.custom_fake(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, ap); \
+            va_end(ap); \
+        } \
+        FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VOID_FUNC18_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ...) \
+    DECLARE_FAKE_VOID_FUNC18_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ...) \
+    DEFINE_FAKE_VOID_FUNC18_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ...) \
+
+
+#define DECLARE_FAKE_VOID_FUNC19_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ARG17_TYPE, ...) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_ARG(ARG0_TYPE, 0, FUNCNAME) \
+        DECLARE_ARG(ARG1_TYPE, 1, FUNCNAME) \
+        DECLARE_ARG(ARG2_TYPE, 2, FUNCNAME) \
+        DECLARE_ARG(ARG3_TYPE, 3, FUNCNAME) \
+        DECLARE_ARG(ARG4_TYPE, 4, FUNCNAME) \
+        DECLARE_ARG(ARG5_TYPE, 5, FUNCNAME) \
+        DECLARE_ARG(ARG6_TYPE, 6, FUNCNAME) \
+        DECLARE_ARG(ARG7_TYPE, 7, FUNCNAME) \
+        DECLARE_ARG(ARG8_TYPE, 8, FUNCNAME) \
+        DECLARE_ARG(ARG9_TYPE, 9, FUNCNAME) \
+        DECLARE_ARG(ARG10_TYPE, 10, FUNCNAME) \
+        DECLARE_ARG(ARG11_TYPE, 11, FUNCNAME) \
+        DECLARE_ARG(ARG12_TYPE, 12, FUNCNAME) \
+        DECLARE_ARG(ARG13_TYPE, 13, FUNCNAME) \
+        DECLARE_ARG(ARG14_TYPE, 14, FUNCNAME) \
+        DECLARE_ARG(ARG15_TYPE, 15, FUNCNAME) \
+        DECLARE_ARG(ARG16_TYPE, 16, FUNCNAME) \
+        DECLARE_ARG(ARG17_TYPE, 17, FUNCNAME) \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, custom_fake, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ARG17_TYPE, va_list ap); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, *custom_fake_seq, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ARG17_TYPE, va_list ap); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VOID_FUNC19_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ARG17_TYPE, ...) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(ARG0_TYPE arg0, ARG1_TYPE arg1, ARG2_TYPE arg2, ARG3_TYPE arg3, ARG4_TYPE arg4, ARG5_TYPE arg5, ARG6_TYPE arg6, ARG7_TYPE arg7, ARG8_TYPE arg8, ARG9_TYPE arg9, ARG10_TYPE arg10, ARG11_TYPE arg11, ARG12_TYPE arg12, ARG13_TYPE arg13, ARG14_TYPE arg14, ARG15_TYPE arg15, ARG16_TYPE arg16, ARG17_TYPE arg17, ...){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        SAVE_ARG(FUNCNAME, 0); \
+        SAVE_ARG(FUNCNAME, 1); \
+        SAVE_ARG(FUNCNAME, 2); \
+        SAVE_ARG(FUNCNAME, 3); \
+        SAVE_ARG(FUNCNAME, 4); \
+        SAVE_ARG(FUNCNAME, 5); \
+        SAVE_ARG(FUNCNAME, 6); \
+        SAVE_ARG(FUNCNAME, 7); \
+        SAVE_ARG(FUNCNAME, 8); \
+        SAVE_ARG(FUNCNAME, 9); \
+        SAVE_ARG(FUNCNAME, 10); \
+        SAVE_ARG(FUNCNAME, 11); \
+        SAVE_ARG(FUNCNAME, 12); \
+        SAVE_ARG(FUNCNAME, 13); \
+        SAVE_ARG(FUNCNAME, 14); \
+        SAVE_ARG(FUNCNAME, 15); \
+        SAVE_ARG(FUNCNAME, 16); \
+        SAVE_ARG(FUNCNAME, 17); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+            SAVE_ARG_HISTORY(FUNCNAME, 0); \
+            SAVE_ARG_HISTORY(FUNCNAME, 1); \
+            SAVE_ARG_HISTORY(FUNCNAME, 2); \
+            SAVE_ARG_HISTORY(FUNCNAME, 3); \
+            SAVE_ARG_HISTORY(FUNCNAME, 4); \
+            SAVE_ARG_HISTORY(FUNCNAME, 5); \
+            SAVE_ARG_HISTORY(FUNCNAME, 6); \
+            SAVE_ARG_HISTORY(FUNCNAME, 7); \
+            SAVE_ARG_HISTORY(FUNCNAME, 8); \
+            SAVE_ARG_HISTORY(FUNCNAME, 9); \
+            SAVE_ARG_HISTORY(FUNCNAME, 10); \
+            SAVE_ARG_HISTORY(FUNCNAME, 11); \
+            SAVE_ARG_HISTORY(FUNCNAME, 12); \
+            SAVE_ARG_HISTORY(FUNCNAME, 13); \
+            SAVE_ARG_HISTORY(FUNCNAME, 14); \
+            SAVE_ARG_HISTORY(FUNCNAME, 15); \
+            SAVE_ARG_HISTORY(FUNCNAME, 16); \
+            SAVE_ARG_HISTORY(FUNCNAME, 17); \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                va_list ap; \
+                va_start(ap, arg17); \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, ap); \
+                va_end(ap); \
+            } \
+            else{ \
+                va_list ap; \
+                va_start(ap, arg17); \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, ap); \
+                va_end(ap); \
+            } \
+        } \
+        if(FUNCNAME##_fake.custom_fake){ \
+            va_list ap; \
+            va_start(ap, arg17); \
+            FUNCNAME##_fake.custom_fake(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, ap); \
+            va_end(ap); \
+        } \
+        FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VOID_FUNC19_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ARG17_TYPE, ...) \
+    DECLARE_FAKE_VOID_FUNC19_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ARG17_TYPE, ...) \
+    DEFINE_FAKE_VOID_FUNC19_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ARG17_TYPE, ...) \
+
+
+#define DECLARE_FAKE_VOID_FUNC20_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ARG17_TYPE, ARG18_TYPE, ...) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_ARG(ARG0_TYPE, 0, FUNCNAME) \
+        DECLARE_ARG(ARG1_TYPE, 1, FUNCNAME) \
+        DECLARE_ARG(ARG2_TYPE, 2, FUNCNAME) \
+        DECLARE_ARG(ARG3_TYPE, 3, FUNCNAME) \
+        DECLARE_ARG(ARG4_TYPE, 4, FUNCNAME) \
+        DECLARE_ARG(ARG5_TYPE, 5, FUNCNAME) \
+        DECLARE_ARG(ARG6_TYPE, 6, FUNCNAME) \
+        DECLARE_ARG(ARG7_TYPE, 7, FUNCNAME) \
+        DECLARE_ARG(ARG8_TYPE, 8, FUNCNAME) \
+        DECLARE_ARG(ARG9_TYPE, 9, FUNCNAME) \
+        DECLARE_ARG(ARG10_TYPE, 10, FUNCNAME) \
+        DECLARE_ARG(ARG11_TYPE, 11, FUNCNAME) \
+        DECLARE_ARG(ARG12_TYPE, 12, FUNCNAME) \
+        DECLARE_ARG(ARG13_TYPE, 13, FUNCNAME) \
+        DECLARE_ARG(ARG14_TYPE, 14, FUNCNAME) \
+        DECLARE_ARG(ARG15_TYPE, 15, FUNCNAME) \
+        DECLARE_ARG(ARG16_TYPE, 16, FUNCNAME) \
+        DECLARE_ARG(ARG17_TYPE, 17, FUNCNAME) \
+        DECLARE_ARG(ARG18_TYPE, 18, FUNCNAME) \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, custom_fake, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ARG17_TYPE, ARG18_TYPE, va_list ap); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(void, *custom_fake_seq, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ARG17_TYPE, ARG18_TYPE, va_list ap); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VOID_FUNC20_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ARG17_TYPE, ARG18_TYPE, ...) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(ARG0_TYPE arg0, ARG1_TYPE arg1, ARG2_TYPE arg2, ARG3_TYPE arg3, ARG4_TYPE arg4, ARG5_TYPE arg5, ARG6_TYPE arg6, ARG7_TYPE arg7, ARG8_TYPE arg8, ARG9_TYPE arg9, ARG10_TYPE arg10, ARG11_TYPE arg11, ARG12_TYPE arg12, ARG13_TYPE arg13, ARG14_TYPE arg14, ARG15_TYPE arg15, ARG16_TYPE arg16, ARG17_TYPE arg17, ARG18_TYPE arg18, ...){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        SAVE_ARG(FUNCNAME, 0); \
+        SAVE_ARG(FUNCNAME, 1); \
+        SAVE_ARG(FUNCNAME, 2); \
+        SAVE_ARG(FUNCNAME, 3); \
+        SAVE_ARG(FUNCNAME, 4); \
+        SAVE_ARG(FUNCNAME, 5); \
+        SAVE_ARG(FUNCNAME, 6); \
+        SAVE_ARG(FUNCNAME, 7); \
+        SAVE_ARG(FUNCNAME, 8); \
+        SAVE_ARG(FUNCNAME, 9); \
+        SAVE_ARG(FUNCNAME, 10); \
+        SAVE_ARG(FUNCNAME, 11); \
+        SAVE_ARG(FUNCNAME, 12); \
+        SAVE_ARG(FUNCNAME, 13); \
+        SAVE_ARG(FUNCNAME, 14); \
+        SAVE_ARG(FUNCNAME, 15); \
+        SAVE_ARG(FUNCNAME, 16); \
+        SAVE_ARG(FUNCNAME, 17); \
+        SAVE_ARG(FUNCNAME, 18); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+            SAVE_ARG_HISTORY(FUNCNAME, 0); \
+            SAVE_ARG_HISTORY(FUNCNAME, 1); \
+            SAVE_ARG_HISTORY(FUNCNAME, 2); \
+            SAVE_ARG_HISTORY(FUNCNAME, 3); \
+            SAVE_ARG_HISTORY(FUNCNAME, 4); \
+            SAVE_ARG_HISTORY(FUNCNAME, 5); \
+            SAVE_ARG_HISTORY(FUNCNAME, 6); \
+            SAVE_ARG_HISTORY(FUNCNAME, 7); \
+            SAVE_ARG_HISTORY(FUNCNAME, 8); \
+            SAVE_ARG_HISTORY(FUNCNAME, 9); \
+            SAVE_ARG_HISTORY(FUNCNAME, 10); \
+            SAVE_ARG_HISTORY(FUNCNAME, 11); \
+            SAVE_ARG_HISTORY(FUNCNAME, 12); \
+            SAVE_ARG_HISTORY(FUNCNAME, 13); \
+            SAVE_ARG_HISTORY(FUNCNAME, 14); \
+            SAVE_ARG_HISTORY(FUNCNAME, 15); \
+            SAVE_ARG_HISTORY(FUNCNAME, 16); \
+            SAVE_ARG_HISTORY(FUNCNAME, 17); \
+            SAVE_ARG_HISTORY(FUNCNAME, 18); \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                va_list ap; \
+                va_start(ap, arg18); \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, ap); \
+                va_end(ap); \
+            } \
+            else{ \
+                va_list ap; \
+                va_start(ap, arg18); \
+                FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, ap); \
+                va_end(ap); \
+            } \
+        } \
+        if(FUNCNAME##_fake.custom_fake){ \
+            va_list ap; \
+            va_start(ap, arg18); \
+            FUNCNAME##_fake.custom_fake(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, ap); \
+            va_end(ap); \
+        } \
+        FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VOID_FUNC20_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ARG17_TYPE, ARG18_TYPE, ...) \
+    DECLARE_FAKE_VOID_FUNC20_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ARG17_TYPE, ARG18_TYPE, ...) \
+    DEFINE_FAKE_VOID_FUNC20_VARARG_TS(FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ARG17_TYPE, ARG18_TYPE, ...) \
+
+
+#define DECLARE_FAKE_VALUE_FUNC2_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ...) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_ARG(ARG0_TYPE, 0, FUNCNAME) \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_VALUE_FUNCTION_VARIABLES(RETURN_TYPE) \
+        DECLARE_RETURN_VALUE_HISTORY(RETURN_TYPE) \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, custom_fake, ARG0_TYPE, va_list ap); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, *custom_fake_seq, ARG0_TYPE, va_list ap); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VALUE_FUNC2_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ...) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    RETURN_TYPE FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(ARG0_TYPE arg0, ...){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        SAVE_ARG(FUNCNAME, 0); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+            SAVE_ARG_HISTORY(FUNCNAME, 0); \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                va_list ap; \
+                va_start(ap, arg0); \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](arg0, ap); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                va_end(ap); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+            else{ \
+                va_list ap; \
+                va_start(ap, arg0); \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](arg0, ap); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                va_end(ap); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+        } \
+        if(FUNCNAME##_fake.custom_fake){ \
+            RETURN_TYPE ret; \
+            va_list ap; \
+            va_start(ap, arg0); \
+            ret = FUNCNAME##_fake.custom_fake(arg0, ap); \
+            va_end(ap); \
+            SAVE_RET_HISTORY(FUNCNAME, ret); \
+            FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+            return ret; \
+        } \
+        RETURN_FAKE_RESULT_TS(FUNCNAME) \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VALUE_FUNC2_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ...) \
+    DECLARE_FAKE_VALUE_FUNC2_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ...) \
+    DEFINE_FAKE_VALUE_FUNC2_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ...) \
+
+
+#define DECLARE_FAKE_VALUE_FUNC3_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ...) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_ARG(ARG0_TYPE, 0, FUNCNAME) \
+        DECLARE_ARG(ARG1_TYPE, 1, FUNCNAME) \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_VALUE_FUNCTION_VARIABLES(RETURN_TYPE) \
+        DECLARE_RETURN_VALUE_HISTORY(RETURN_TYPE) \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, custom_fake, ARG0_TYPE, ARG1_TYPE, va_list ap); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, *custom_fake_seq, ARG0_TYPE, ARG1_TYPE, va_list ap); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VALUE_FUNC3_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ...) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    RETURN_TYPE FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(ARG0_TYPE arg0, ARG1_TYPE arg1, ...){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        SAVE_ARG(FUNCNAME, 0); \
+        SAVE_ARG(FUNCNAME, 1); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+            SAVE_ARG_HISTORY(FUNCNAME, 0); \
+            SAVE_ARG_HISTORY(FUNCNAME, 1); \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                va_list ap; \
+                va_start(ap, arg1); \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](arg0, arg1, ap); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                va_end(ap); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+            else{ \
+                va_list ap; \
+                va_start(ap, arg1); \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](arg0, arg1, ap); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                va_end(ap); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+        } \
+        if(FUNCNAME##_fake.custom_fake){ \
+            RETURN_TYPE ret; \
+            va_list ap; \
+            va_start(ap, arg1); \
+            ret = FUNCNAME##_fake.custom_fake(arg0, arg1, ap); \
+            va_end(ap); \
+            SAVE_RET_HISTORY(FUNCNAME, ret); \
+            FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+            return ret; \
+        } \
+        RETURN_FAKE_RESULT_TS(FUNCNAME) \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VALUE_FUNC3_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ...) \
+    DECLARE_FAKE_VALUE_FUNC3_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ...) \
+    DEFINE_FAKE_VALUE_FUNC3_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ...) \
+
+
+#define DECLARE_FAKE_VALUE_FUNC4_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ...) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_ARG(ARG0_TYPE, 0, FUNCNAME) \
+        DECLARE_ARG(ARG1_TYPE, 1, FUNCNAME) \
+        DECLARE_ARG(ARG2_TYPE, 2, FUNCNAME) \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_VALUE_FUNCTION_VARIABLES(RETURN_TYPE) \
+        DECLARE_RETURN_VALUE_HISTORY(RETURN_TYPE) \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, custom_fake, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, va_list ap); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, *custom_fake_seq, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, va_list ap); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VALUE_FUNC4_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ...) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    RETURN_TYPE FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(ARG0_TYPE arg0, ARG1_TYPE arg1, ARG2_TYPE arg2, ...){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        SAVE_ARG(FUNCNAME, 0); \
+        SAVE_ARG(FUNCNAME, 1); \
+        SAVE_ARG(FUNCNAME, 2); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+            SAVE_ARG_HISTORY(FUNCNAME, 0); \
+            SAVE_ARG_HISTORY(FUNCNAME, 1); \
+            SAVE_ARG_HISTORY(FUNCNAME, 2); \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                va_list ap; \
+                va_start(ap, arg2); \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](arg0, arg1, arg2, ap); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                va_end(ap); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+            else{ \
+                va_list ap; \
+                va_start(ap, arg2); \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](arg0, arg1, arg2, ap); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                va_end(ap); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+        } \
+        if(FUNCNAME##_fake.custom_fake){ \
+            RETURN_TYPE ret; \
+            va_list ap; \
+            va_start(ap, arg2); \
+            ret = FUNCNAME##_fake.custom_fake(arg0, arg1, arg2, ap); \
+            va_end(ap); \
+            SAVE_RET_HISTORY(FUNCNAME, ret); \
+            FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+            return ret; \
+        } \
+        RETURN_FAKE_RESULT_TS(FUNCNAME) \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VALUE_FUNC4_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ...) \
+    DECLARE_FAKE_VALUE_FUNC4_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ...) \
+    DEFINE_FAKE_VALUE_FUNC4_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ...) \
+
+
+#define DECLARE_FAKE_VALUE_FUNC5_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ...) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_ARG(ARG0_TYPE, 0, FUNCNAME) \
+        DECLARE_ARG(ARG1_TYPE, 1, FUNCNAME) \
+        DECLARE_ARG(ARG2_TYPE, 2, FUNCNAME) \
+        DECLARE_ARG(ARG3_TYPE, 3, FUNCNAME) \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_VALUE_FUNCTION_VARIABLES(RETURN_TYPE) \
+        DECLARE_RETURN_VALUE_HISTORY(RETURN_TYPE) \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, custom_fake, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, va_list ap); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, *custom_fake_seq, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, va_list ap); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VALUE_FUNC5_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ...) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    RETURN_TYPE FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(ARG0_TYPE arg0, ARG1_TYPE arg1, ARG2_TYPE arg2, ARG3_TYPE arg3, ...){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        SAVE_ARG(FUNCNAME, 0); \
+        SAVE_ARG(FUNCNAME, 1); \
+        SAVE_ARG(FUNCNAME, 2); \
+        SAVE_ARG(FUNCNAME, 3); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+            SAVE_ARG_HISTORY(FUNCNAME, 0); \
+            SAVE_ARG_HISTORY(FUNCNAME, 1); \
+            SAVE_ARG_HISTORY(FUNCNAME, 2); \
+            SAVE_ARG_HISTORY(FUNCNAME, 3); \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                va_list ap; \
+                va_start(ap, arg3); \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](arg0, arg1, arg2, arg3, ap); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                va_end(ap); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+            else{ \
+                va_list ap; \
+                va_start(ap, arg3); \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](arg0, arg1, arg2, arg3, ap); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                va_end(ap); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+        } \
+        if(FUNCNAME##_fake.custom_fake){ \
+            RETURN_TYPE ret; \
+            va_list ap; \
+            va_start(ap, arg3); \
+            ret = FUNCNAME##_fake.custom_fake(arg0, arg1, arg2, arg3, ap); \
+            va_end(ap); \
+            SAVE_RET_HISTORY(FUNCNAME, ret); \
+            FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+            return ret; \
+        } \
+        RETURN_FAKE_RESULT_TS(FUNCNAME) \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VALUE_FUNC5_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ...) \
+    DECLARE_FAKE_VALUE_FUNC5_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ...) \
+    DEFINE_FAKE_VALUE_FUNC5_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ...) \
+
+
+#define DECLARE_FAKE_VALUE_FUNC6_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ...) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_ARG(ARG0_TYPE, 0, FUNCNAME) \
+        DECLARE_ARG(ARG1_TYPE, 1, FUNCNAME) \
+        DECLARE_ARG(ARG2_TYPE, 2, FUNCNAME) \
+        DECLARE_ARG(ARG3_TYPE, 3, FUNCNAME) \
+        DECLARE_ARG(ARG4_TYPE, 4, FUNCNAME) \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_VALUE_FUNCTION_VARIABLES(RETURN_TYPE) \
+        DECLARE_RETURN_VALUE_HISTORY(RETURN_TYPE) \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, custom_fake, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, va_list ap); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, *custom_fake_seq, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, va_list ap); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VALUE_FUNC6_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ...) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    RETURN_TYPE FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(ARG0_TYPE arg0, ARG1_TYPE arg1, ARG2_TYPE arg2, ARG3_TYPE arg3, ARG4_TYPE arg4, ...){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        SAVE_ARG(FUNCNAME, 0); \
+        SAVE_ARG(FUNCNAME, 1); \
+        SAVE_ARG(FUNCNAME, 2); \
+        SAVE_ARG(FUNCNAME, 3); \
+        SAVE_ARG(FUNCNAME, 4); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+            SAVE_ARG_HISTORY(FUNCNAME, 0); \
+            SAVE_ARG_HISTORY(FUNCNAME, 1); \
+            SAVE_ARG_HISTORY(FUNCNAME, 2); \
+            SAVE_ARG_HISTORY(FUNCNAME, 3); \
+            SAVE_ARG_HISTORY(FUNCNAME, 4); \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                va_list ap; \
+                va_start(ap, arg4); \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](arg0, arg1, arg2, arg3, arg4, ap); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                va_end(ap); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+            else{ \
+                va_list ap; \
+                va_start(ap, arg4); \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](arg0, arg1, arg2, arg3, arg4, ap); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                va_end(ap); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+        } \
+        if(FUNCNAME##_fake.custom_fake){ \
+            RETURN_TYPE ret; \
+            va_list ap; \
+            va_start(ap, arg4); \
+            ret = FUNCNAME##_fake.custom_fake(arg0, arg1, arg2, arg3, arg4, ap); \
+            va_end(ap); \
+            SAVE_RET_HISTORY(FUNCNAME, ret); \
+            FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+            return ret; \
+        } \
+        RETURN_FAKE_RESULT_TS(FUNCNAME) \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VALUE_FUNC6_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ...) \
+    DECLARE_FAKE_VALUE_FUNC6_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ...) \
+    DEFINE_FAKE_VALUE_FUNC6_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ...) \
+
+
+#define DECLARE_FAKE_VALUE_FUNC7_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ...) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_ARG(ARG0_TYPE, 0, FUNCNAME) \
+        DECLARE_ARG(ARG1_TYPE, 1, FUNCNAME) \
+        DECLARE_ARG(ARG2_TYPE, 2, FUNCNAME) \
+        DECLARE_ARG(ARG3_TYPE, 3, FUNCNAME) \
+        DECLARE_ARG(ARG4_TYPE, 4, FUNCNAME) \
+        DECLARE_ARG(ARG5_TYPE, 5, FUNCNAME) \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_VALUE_FUNCTION_VARIABLES(RETURN_TYPE) \
+        DECLARE_RETURN_VALUE_HISTORY(RETURN_TYPE) \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, custom_fake, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, va_list ap); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, *custom_fake_seq, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, va_list ap); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VALUE_FUNC7_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ...) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    RETURN_TYPE FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(ARG0_TYPE arg0, ARG1_TYPE arg1, ARG2_TYPE arg2, ARG3_TYPE arg3, ARG4_TYPE arg4, ARG5_TYPE arg5, ...){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        SAVE_ARG(FUNCNAME, 0); \
+        SAVE_ARG(FUNCNAME, 1); \
+        SAVE_ARG(FUNCNAME, 2); \
+        SAVE_ARG(FUNCNAME, 3); \
+        SAVE_ARG(FUNCNAME, 4); \
+        SAVE_ARG(FUNCNAME, 5); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+            SAVE_ARG_HISTORY(FUNCNAME, 0); \
+            SAVE_ARG_HISTORY(FUNCNAME, 1); \
+            SAVE_ARG_HISTORY(FUNCNAME, 2); \
+            SAVE_ARG_HISTORY(FUNCNAME, 3); \
+            SAVE_ARG_HISTORY(FUNCNAME, 4); \
+            SAVE_ARG_HISTORY(FUNCNAME, 5); \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                va_list ap; \
+                va_start(ap, arg5); \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](arg0, arg1, arg2, arg3, arg4, arg5, ap); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                va_end(ap); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+            else{ \
+                va_list ap; \
+                va_start(ap, arg5); \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](arg0, arg1, arg2, arg3, arg4, arg5, ap); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                va_end(ap); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+        } \
+        if(FUNCNAME##_fake.custom_fake){ \
+            RETURN_TYPE ret; \
+            va_list ap; \
+            va_start(ap, arg5); \
+            ret = FUNCNAME##_fake.custom_fake(arg0, arg1, arg2, arg3, arg4, arg5, ap); \
+            va_end(ap); \
+            SAVE_RET_HISTORY(FUNCNAME, ret); \
+            FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+            return ret; \
+        } \
+        RETURN_FAKE_RESULT_TS(FUNCNAME) \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VALUE_FUNC7_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ...) \
+    DECLARE_FAKE_VALUE_FUNC7_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ...) \
+    DEFINE_FAKE_VALUE_FUNC7_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ...) \
+
+
+#define DECLARE_FAKE_VALUE_FUNC8_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ...) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_ARG(ARG0_TYPE, 0, FUNCNAME) \
+        DECLARE_ARG(ARG1_TYPE, 1, FUNCNAME) \
+        DECLARE_ARG(ARG2_TYPE, 2, FUNCNAME) \
+        DECLARE_ARG(ARG3_TYPE, 3, FUNCNAME) \
+        DECLARE_ARG(ARG4_TYPE, 4, FUNCNAME) \
+        DECLARE_ARG(ARG5_TYPE, 5, FUNCNAME) \
+        DECLARE_ARG(ARG6_TYPE, 6, FUNCNAME) \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_VALUE_FUNCTION_VARIABLES(RETURN_TYPE) \
+        DECLARE_RETURN_VALUE_HISTORY(RETURN_TYPE) \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, custom_fake, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, va_list ap); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, *custom_fake_seq, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, va_list ap); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VALUE_FUNC8_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ...) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    RETURN_TYPE FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(ARG0_TYPE arg0, ARG1_TYPE arg1, ARG2_TYPE arg2, ARG3_TYPE arg3, ARG4_TYPE arg4, ARG5_TYPE arg5, ARG6_TYPE arg6, ...){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        SAVE_ARG(FUNCNAME, 0); \
+        SAVE_ARG(FUNCNAME, 1); \
+        SAVE_ARG(FUNCNAME, 2); \
+        SAVE_ARG(FUNCNAME, 3); \
+        SAVE_ARG(FUNCNAME, 4); \
+        SAVE_ARG(FUNCNAME, 5); \
+        SAVE_ARG(FUNCNAME, 6); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+            SAVE_ARG_HISTORY(FUNCNAME, 0); \
+            SAVE_ARG_HISTORY(FUNCNAME, 1); \
+            SAVE_ARG_HISTORY(FUNCNAME, 2); \
+            SAVE_ARG_HISTORY(FUNCNAME, 3); \
+            SAVE_ARG_HISTORY(FUNCNAME, 4); \
+            SAVE_ARG_HISTORY(FUNCNAME, 5); \
+            SAVE_ARG_HISTORY(FUNCNAME, 6); \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                va_list ap; \
+                va_start(ap, arg6); \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](arg0, arg1, arg2, arg3, arg4, arg5, arg6, ap); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                va_end(ap); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+            else{ \
+                va_list ap; \
+                va_start(ap, arg6); \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](arg0, arg1, arg2, arg3, arg4, arg5, arg6, ap); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                va_end(ap); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+        } \
+        if(FUNCNAME##_fake.custom_fake){ \
+            RETURN_TYPE ret; \
+            va_list ap; \
+            va_start(ap, arg6); \
+            ret = FUNCNAME##_fake.custom_fake(arg0, arg1, arg2, arg3, arg4, arg5, arg6, ap); \
+            va_end(ap); \
+            SAVE_RET_HISTORY(FUNCNAME, ret); \
+            FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+            return ret; \
+        } \
+        RETURN_FAKE_RESULT_TS(FUNCNAME) \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VALUE_FUNC8_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ...) \
+    DECLARE_FAKE_VALUE_FUNC8_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ...) \
+    DEFINE_FAKE_VALUE_FUNC8_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ...) \
+
+
+#define DECLARE_FAKE_VALUE_FUNC9_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ...) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_ARG(ARG0_TYPE, 0, FUNCNAME) \
+        DECLARE_ARG(ARG1_TYPE, 1, FUNCNAME) \
+        DECLARE_ARG(ARG2_TYPE, 2, FUNCNAME) \
+        DECLARE_ARG(ARG3_TYPE, 3, FUNCNAME) \
+        DECLARE_ARG(ARG4_TYPE, 4, FUNCNAME) \
+        DECLARE_ARG(ARG5_TYPE, 5, FUNCNAME) \
+        DECLARE_ARG(ARG6_TYPE, 6, FUNCNAME) \
+        DECLARE_ARG(ARG7_TYPE, 7, FUNCNAME) \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_VALUE_FUNCTION_VARIABLES(RETURN_TYPE) \
+        DECLARE_RETURN_VALUE_HISTORY(RETURN_TYPE) \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, custom_fake, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, va_list ap); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, *custom_fake_seq, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, va_list ap); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VALUE_FUNC9_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ...) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    RETURN_TYPE FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(ARG0_TYPE arg0, ARG1_TYPE arg1, ARG2_TYPE arg2, ARG3_TYPE arg3, ARG4_TYPE arg4, ARG5_TYPE arg5, ARG6_TYPE arg6, ARG7_TYPE arg7, ...){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        SAVE_ARG(FUNCNAME, 0); \
+        SAVE_ARG(FUNCNAME, 1); \
+        SAVE_ARG(FUNCNAME, 2); \
+        SAVE_ARG(FUNCNAME, 3); \
+        SAVE_ARG(FUNCNAME, 4); \
+        SAVE_ARG(FUNCNAME, 5); \
+        SAVE_ARG(FUNCNAME, 6); \
+        SAVE_ARG(FUNCNAME, 7); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+            SAVE_ARG_HISTORY(FUNCNAME, 0); \
+            SAVE_ARG_HISTORY(FUNCNAME, 1); \
+            SAVE_ARG_HISTORY(FUNCNAME, 2); \
+            SAVE_ARG_HISTORY(FUNCNAME, 3); \
+            SAVE_ARG_HISTORY(FUNCNAME, 4); \
+            SAVE_ARG_HISTORY(FUNCNAME, 5); \
+            SAVE_ARG_HISTORY(FUNCNAME, 6); \
+            SAVE_ARG_HISTORY(FUNCNAME, 7); \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                va_list ap; \
+                va_start(ap, arg7); \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, ap); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                va_end(ap); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+            else{ \
+                va_list ap; \
+                va_start(ap, arg7); \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, ap); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                va_end(ap); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+        } \
+        if(FUNCNAME##_fake.custom_fake){ \
+            RETURN_TYPE ret; \
+            va_list ap; \
+            va_start(ap, arg7); \
+            ret = FUNCNAME##_fake.custom_fake(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, ap); \
+            va_end(ap); \
+            SAVE_RET_HISTORY(FUNCNAME, ret); \
+            FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+            return ret; \
+        } \
+        RETURN_FAKE_RESULT_TS(FUNCNAME) \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VALUE_FUNC9_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ...) \
+    DECLARE_FAKE_VALUE_FUNC9_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ...) \
+    DEFINE_FAKE_VALUE_FUNC9_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ...) \
+
+
+#define DECLARE_FAKE_VALUE_FUNC10_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ...) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_ARG(ARG0_TYPE, 0, FUNCNAME) \
+        DECLARE_ARG(ARG1_TYPE, 1, FUNCNAME) \
+        DECLARE_ARG(ARG2_TYPE, 2, FUNCNAME) \
+        DECLARE_ARG(ARG3_TYPE, 3, FUNCNAME) \
+        DECLARE_ARG(ARG4_TYPE, 4, FUNCNAME) \
+        DECLARE_ARG(ARG5_TYPE, 5, FUNCNAME) \
+        DECLARE_ARG(ARG6_TYPE, 6, FUNCNAME) \
+        DECLARE_ARG(ARG7_TYPE, 7, FUNCNAME) \
+        DECLARE_ARG(ARG8_TYPE, 8, FUNCNAME) \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_VALUE_FUNCTION_VARIABLES(RETURN_TYPE) \
+        DECLARE_RETURN_VALUE_HISTORY(RETURN_TYPE) \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, custom_fake, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, va_list ap); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, *custom_fake_seq, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, va_list ap); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VALUE_FUNC10_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ...) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    RETURN_TYPE FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(ARG0_TYPE arg0, ARG1_TYPE arg1, ARG2_TYPE arg2, ARG3_TYPE arg3, ARG4_TYPE arg4, ARG5_TYPE arg5, ARG6_TYPE arg6, ARG7_TYPE arg7, ARG8_TYPE arg8, ...){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        SAVE_ARG(FUNCNAME, 0); \
+        SAVE_ARG(FUNCNAME, 1); \
+        SAVE_ARG(FUNCNAME, 2); \
+        SAVE_ARG(FUNCNAME, 3); \
+        SAVE_ARG(FUNCNAME, 4); \
+        SAVE_ARG(FUNCNAME, 5); \
+        SAVE_ARG(FUNCNAME, 6); \
+        SAVE_ARG(FUNCNAME, 7); \
+        SAVE_ARG(FUNCNAME, 8); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+            SAVE_ARG_HISTORY(FUNCNAME, 0); \
+            SAVE_ARG_HISTORY(FUNCNAME, 1); \
+            SAVE_ARG_HISTORY(FUNCNAME, 2); \
+            SAVE_ARG_HISTORY(FUNCNAME, 3); \
+            SAVE_ARG_HISTORY(FUNCNAME, 4); \
+            SAVE_ARG_HISTORY(FUNCNAME, 5); \
+            SAVE_ARG_HISTORY(FUNCNAME, 6); \
+            SAVE_ARG_HISTORY(FUNCNAME, 7); \
+            SAVE_ARG_HISTORY(FUNCNAME, 8); \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                va_list ap; \
+                va_start(ap, arg8); \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, ap); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                va_end(ap); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+            else{ \
+                va_list ap; \
+                va_start(ap, arg8); \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, ap); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                va_end(ap); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+        } \
+        if(FUNCNAME##_fake.custom_fake){ \
+            RETURN_TYPE ret; \
+            va_list ap; \
+            va_start(ap, arg8); \
+            ret = FUNCNAME##_fake.custom_fake(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, ap); \
+            va_end(ap); \
+            SAVE_RET_HISTORY(FUNCNAME, ret); \
+            FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+            return ret; \
+        } \
+        RETURN_FAKE_RESULT_TS(FUNCNAME) \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VALUE_FUNC10_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ...) \
+    DECLARE_FAKE_VALUE_FUNC10_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ...) \
+    DEFINE_FAKE_VALUE_FUNC10_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ...) \
+
+
+#define DECLARE_FAKE_VALUE_FUNC11_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ...) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_ARG(ARG0_TYPE, 0, FUNCNAME) \
+        DECLARE_ARG(ARG1_TYPE, 1, FUNCNAME) \
+        DECLARE_ARG(ARG2_TYPE, 2, FUNCNAME) \
+        DECLARE_ARG(ARG3_TYPE, 3, FUNCNAME) \
+        DECLARE_ARG(ARG4_TYPE, 4, FUNCNAME) \
+        DECLARE_ARG(ARG5_TYPE, 5, FUNCNAME) \
+        DECLARE_ARG(ARG6_TYPE, 6, FUNCNAME) \
+        DECLARE_ARG(ARG7_TYPE, 7, FUNCNAME) \
+        DECLARE_ARG(ARG8_TYPE, 8, FUNCNAME) \
+        DECLARE_ARG(ARG9_TYPE, 9, FUNCNAME) \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_VALUE_FUNCTION_VARIABLES(RETURN_TYPE) \
+        DECLARE_RETURN_VALUE_HISTORY(RETURN_TYPE) \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, custom_fake, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, va_list ap); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, *custom_fake_seq, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, va_list ap); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VALUE_FUNC11_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ...) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    RETURN_TYPE FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(ARG0_TYPE arg0, ARG1_TYPE arg1, ARG2_TYPE arg2, ARG3_TYPE arg3, ARG4_TYPE arg4, ARG5_TYPE arg5, ARG6_TYPE arg6, ARG7_TYPE arg7, ARG8_TYPE arg8, ARG9_TYPE arg9, ...){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        SAVE_ARG(FUNCNAME, 0); \
+        SAVE_ARG(FUNCNAME, 1); \
+        SAVE_ARG(FUNCNAME, 2); \
+        SAVE_ARG(FUNCNAME, 3); \
+        SAVE_ARG(FUNCNAME, 4); \
+        SAVE_ARG(FUNCNAME, 5); \
+        SAVE_ARG(FUNCNAME, 6); \
+        SAVE_ARG(FUNCNAME, 7); \
+        SAVE_ARG(FUNCNAME, 8); \
+        SAVE_ARG(FUNCNAME, 9); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+            SAVE_ARG_HISTORY(FUNCNAME, 0); \
+            SAVE_ARG_HISTORY(FUNCNAME, 1); \
+            SAVE_ARG_HISTORY(FUNCNAME, 2); \
+            SAVE_ARG_HISTORY(FUNCNAME, 3); \
+            SAVE_ARG_HISTORY(FUNCNAME, 4); \
+            SAVE_ARG_HISTORY(FUNCNAME, 5); \
+            SAVE_ARG_HISTORY(FUNCNAME, 6); \
+            SAVE_ARG_HISTORY(FUNCNAME, 7); \
+            SAVE_ARG_HISTORY(FUNCNAME, 8); \
+            SAVE_ARG_HISTORY(FUNCNAME, 9); \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                va_list ap; \
+                va_start(ap, arg9); \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, ap); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                va_end(ap); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+            else{ \
+                va_list ap; \
+                va_start(ap, arg9); \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, ap); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                va_end(ap); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+        } \
+        if(FUNCNAME##_fake.custom_fake){ \
+            RETURN_TYPE ret; \
+            va_list ap; \
+            va_start(ap, arg9); \
+            ret = FUNCNAME##_fake.custom_fake(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, ap); \
+            va_end(ap); \
+            SAVE_RET_HISTORY(FUNCNAME, ret); \
+            FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+            return ret; \
+        } \
+        RETURN_FAKE_RESULT_TS(FUNCNAME) \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VALUE_FUNC11_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ...) \
+    DECLARE_FAKE_VALUE_FUNC11_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ...) \
+    DEFINE_FAKE_VALUE_FUNC11_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ...) \
+
+
+#define DECLARE_FAKE_VALUE_FUNC12_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ...) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_ARG(ARG0_TYPE, 0, FUNCNAME) \
+        DECLARE_ARG(ARG1_TYPE, 1, FUNCNAME) \
+        DECLARE_ARG(ARG2_TYPE, 2, FUNCNAME) \
+        DECLARE_ARG(ARG3_TYPE, 3, FUNCNAME) \
+        DECLARE_ARG(ARG4_TYPE, 4, FUNCNAME) \
+        DECLARE_ARG(ARG5_TYPE, 5, FUNCNAME) \
+        DECLARE_ARG(ARG6_TYPE, 6, FUNCNAME) \
+        DECLARE_ARG(ARG7_TYPE, 7, FUNCNAME) \
+        DECLARE_ARG(ARG8_TYPE, 8, FUNCNAME) \
+        DECLARE_ARG(ARG9_TYPE, 9, FUNCNAME) \
+        DECLARE_ARG(ARG10_TYPE, 10, FUNCNAME) \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_VALUE_FUNCTION_VARIABLES(RETURN_TYPE) \
+        DECLARE_RETURN_VALUE_HISTORY(RETURN_TYPE) \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, custom_fake, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, va_list ap); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, *custom_fake_seq, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, va_list ap); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VALUE_FUNC12_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ...) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    RETURN_TYPE FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(ARG0_TYPE arg0, ARG1_TYPE arg1, ARG2_TYPE arg2, ARG3_TYPE arg3, ARG4_TYPE arg4, ARG5_TYPE arg5, ARG6_TYPE arg6, ARG7_TYPE arg7, ARG8_TYPE arg8, ARG9_TYPE arg9, ARG10_TYPE arg10, ...){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        SAVE_ARG(FUNCNAME, 0); \
+        SAVE_ARG(FUNCNAME, 1); \
+        SAVE_ARG(FUNCNAME, 2); \
+        SAVE_ARG(FUNCNAME, 3); \
+        SAVE_ARG(FUNCNAME, 4); \
+        SAVE_ARG(FUNCNAME, 5); \
+        SAVE_ARG(FUNCNAME, 6); \
+        SAVE_ARG(FUNCNAME, 7); \
+        SAVE_ARG(FUNCNAME, 8); \
+        SAVE_ARG(FUNCNAME, 9); \
+        SAVE_ARG(FUNCNAME, 10); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+            SAVE_ARG_HISTORY(FUNCNAME, 0); \
+            SAVE_ARG_HISTORY(FUNCNAME, 1); \
+            SAVE_ARG_HISTORY(FUNCNAME, 2); \
+            SAVE_ARG_HISTORY(FUNCNAME, 3); \
+            SAVE_ARG_HISTORY(FUNCNAME, 4); \
+            SAVE_ARG_HISTORY(FUNCNAME, 5); \
+            SAVE_ARG_HISTORY(FUNCNAME, 6); \
+            SAVE_ARG_HISTORY(FUNCNAME, 7); \
+            SAVE_ARG_HISTORY(FUNCNAME, 8); \
+            SAVE_ARG_HISTORY(FUNCNAME, 9); \
+            SAVE_ARG_HISTORY(FUNCNAME, 10); \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                va_list ap; \
+                va_start(ap, arg10); \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, ap); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                va_end(ap); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+            else{ \
+                va_list ap; \
+                va_start(ap, arg10); \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, ap); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                va_end(ap); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+        } \
+        if(FUNCNAME##_fake.custom_fake){ \
+            RETURN_TYPE ret; \
+            va_list ap; \
+            va_start(ap, arg10); \
+            ret = FUNCNAME##_fake.custom_fake(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, ap); \
+            va_end(ap); \
+            SAVE_RET_HISTORY(FUNCNAME, ret); \
+            FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+            return ret; \
+        } \
+        RETURN_FAKE_RESULT_TS(FUNCNAME) \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VALUE_FUNC12_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ...) \
+    DECLARE_FAKE_VALUE_FUNC12_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ...) \
+    DEFINE_FAKE_VALUE_FUNC12_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ...) \
+
+
+#define DECLARE_FAKE_VALUE_FUNC13_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ...) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_ARG(ARG0_TYPE, 0, FUNCNAME) \
+        DECLARE_ARG(ARG1_TYPE, 1, FUNCNAME) \
+        DECLARE_ARG(ARG2_TYPE, 2, FUNCNAME) \
+        DECLARE_ARG(ARG3_TYPE, 3, FUNCNAME) \
+        DECLARE_ARG(ARG4_TYPE, 4, FUNCNAME) \
+        DECLARE_ARG(ARG5_TYPE, 5, FUNCNAME) \
+        DECLARE_ARG(ARG6_TYPE, 6, FUNCNAME) \
+        DECLARE_ARG(ARG7_TYPE, 7, FUNCNAME) \
+        DECLARE_ARG(ARG8_TYPE, 8, FUNCNAME) \
+        DECLARE_ARG(ARG9_TYPE, 9, FUNCNAME) \
+        DECLARE_ARG(ARG10_TYPE, 10, FUNCNAME) \
+        DECLARE_ARG(ARG11_TYPE, 11, FUNCNAME) \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_VALUE_FUNCTION_VARIABLES(RETURN_TYPE) \
+        DECLARE_RETURN_VALUE_HISTORY(RETURN_TYPE) \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, custom_fake, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, va_list ap); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, *custom_fake_seq, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, va_list ap); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VALUE_FUNC13_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ...) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    RETURN_TYPE FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(ARG0_TYPE arg0, ARG1_TYPE arg1, ARG2_TYPE arg2, ARG3_TYPE arg3, ARG4_TYPE arg4, ARG5_TYPE arg5, ARG6_TYPE arg6, ARG7_TYPE arg7, ARG8_TYPE arg8, ARG9_TYPE arg9, ARG10_TYPE arg10, ARG11_TYPE arg11, ...){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        SAVE_ARG(FUNCNAME, 0); \
+        SAVE_ARG(FUNCNAME, 1); \
+        SAVE_ARG(FUNCNAME, 2); \
+        SAVE_ARG(FUNCNAME, 3); \
+        SAVE_ARG(FUNCNAME, 4); \
+        SAVE_ARG(FUNCNAME, 5); \
+        SAVE_ARG(FUNCNAME, 6); \
+        SAVE_ARG(FUNCNAME, 7); \
+        SAVE_ARG(FUNCNAME, 8); \
+        SAVE_ARG(FUNCNAME, 9); \
+        SAVE_ARG(FUNCNAME, 10); \
+        SAVE_ARG(FUNCNAME, 11); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+            SAVE_ARG_HISTORY(FUNCNAME, 0); \
+            SAVE_ARG_HISTORY(FUNCNAME, 1); \
+            SAVE_ARG_HISTORY(FUNCNAME, 2); \
+            SAVE_ARG_HISTORY(FUNCNAME, 3); \
+            SAVE_ARG_HISTORY(FUNCNAME, 4); \
+            SAVE_ARG_HISTORY(FUNCNAME, 5); \
+            SAVE_ARG_HISTORY(FUNCNAME, 6); \
+            SAVE_ARG_HISTORY(FUNCNAME, 7); \
+            SAVE_ARG_HISTORY(FUNCNAME, 8); \
+            SAVE_ARG_HISTORY(FUNCNAME, 9); \
+            SAVE_ARG_HISTORY(FUNCNAME, 10); \
+            SAVE_ARG_HISTORY(FUNCNAME, 11); \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                va_list ap; \
+                va_start(ap, arg11); \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, ap); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                va_end(ap); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+            else{ \
+                va_list ap; \
+                va_start(ap, arg11); \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, ap); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                va_end(ap); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+        } \
+        if(FUNCNAME##_fake.custom_fake){ \
+            RETURN_TYPE ret; \
+            va_list ap; \
+            va_start(ap, arg11); \
+            ret = FUNCNAME##_fake.custom_fake(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, ap); \
+            va_end(ap); \
+            SAVE_RET_HISTORY(FUNCNAME, ret); \
+            FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+            return ret; \
+        } \
+        RETURN_FAKE_RESULT_TS(FUNCNAME) \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VALUE_FUNC13_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ...) \
+    DECLARE_FAKE_VALUE_FUNC13_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ...) \
+    DEFINE_FAKE_VALUE_FUNC13_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ...) \
+
+
+#define DECLARE_FAKE_VALUE_FUNC14_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ...) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_ARG(ARG0_TYPE, 0, FUNCNAME) \
+        DECLARE_ARG(ARG1_TYPE, 1, FUNCNAME) \
+        DECLARE_ARG(ARG2_TYPE, 2, FUNCNAME) \
+        DECLARE_ARG(ARG3_TYPE, 3, FUNCNAME) \
+        DECLARE_ARG(ARG4_TYPE, 4, FUNCNAME) \
+        DECLARE_ARG(ARG5_TYPE, 5, FUNCNAME) \
+        DECLARE_ARG(ARG6_TYPE, 6, FUNCNAME) \
+        DECLARE_ARG(ARG7_TYPE, 7, FUNCNAME) \
+        DECLARE_ARG(ARG8_TYPE, 8, FUNCNAME) \
+        DECLARE_ARG(ARG9_TYPE, 9, FUNCNAME) \
+        DECLARE_ARG(ARG10_TYPE, 10, FUNCNAME) \
+        DECLARE_ARG(ARG11_TYPE, 11, FUNCNAME) \
+        DECLARE_ARG(ARG12_TYPE, 12, FUNCNAME) \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_VALUE_FUNCTION_VARIABLES(RETURN_TYPE) \
+        DECLARE_RETURN_VALUE_HISTORY(RETURN_TYPE) \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, custom_fake, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, va_list ap); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, *custom_fake_seq, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, va_list ap); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VALUE_FUNC14_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ...) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    RETURN_TYPE FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(ARG0_TYPE arg0, ARG1_TYPE arg1, ARG2_TYPE arg2, ARG3_TYPE arg3, ARG4_TYPE arg4, ARG5_TYPE arg5, ARG6_TYPE arg6, ARG7_TYPE arg7, ARG8_TYPE arg8, ARG9_TYPE arg9, ARG10_TYPE arg10, ARG11_TYPE arg11, ARG12_TYPE arg12, ...){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        SAVE_ARG(FUNCNAME, 0); \
+        SAVE_ARG(FUNCNAME, 1); \
+        SAVE_ARG(FUNCNAME, 2); \
+        SAVE_ARG(FUNCNAME, 3); \
+        SAVE_ARG(FUNCNAME, 4); \
+        SAVE_ARG(FUNCNAME, 5); \
+        SAVE_ARG(FUNCNAME, 6); \
+        SAVE_ARG(FUNCNAME, 7); \
+        SAVE_ARG(FUNCNAME, 8); \
+        SAVE_ARG(FUNCNAME, 9); \
+        SAVE_ARG(FUNCNAME, 10); \
+        SAVE_ARG(FUNCNAME, 11); \
+        SAVE_ARG(FUNCNAME, 12); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+            SAVE_ARG_HISTORY(FUNCNAME, 0); \
+            SAVE_ARG_HISTORY(FUNCNAME, 1); \
+            SAVE_ARG_HISTORY(FUNCNAME, 2); \
+            SAVE_ARG_HISTORY(FUNCNAME, 3); \
+            SAVE_ARG_HISTORY(FUNCNAME, 4); \
+            SAVE_ARG_HISTORY(FUNCNAME, 5); \
+            SAVE_ARG_HISTORY(FUNCNAME, 6); \
+            SAVE_ARG_HISTORY(FUNCNAME, 7); \
+            SAVE_ARG_HISTORY(FUNCNAME, 8); \
+            SAVE_ARG_HISTORY(FUNCNAME, 9); \
+            SAVE_ARG_HISTORY(FUNCNAME, 10); \
+            SAVE_ARG_HISTORY(FUNCNAME, 11); \
+            SAVE_ARG_HISTORY(FUNCNAME, 12); \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                va_list ap; \
+                va_start(ap, arg12); \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, ap); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                va_end(ap); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+            else{ \
+                va_list ap; \
+                va_start(ap, arg12); \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, ap); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                va_end(ap); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+        } \
+        if(FUNCNAME##_fake.custom_fake){ \
+            RETURN_TYPE ret; \
+            va_list ap; \
+            va_start(ap, arg12); \
+            ret = FUNCNAME##_fake.custom_fake(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, ap); \
+            va_end(ap); \
+            SAVE_RET_HISTORY(FUNCNAME, ret); \
+            FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+            return ret; \
+        } \
+        RETURN_FAKE_RESULT_TS(FUNCNAME) \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VALUE_FUNC14_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ...) \
+    DECLARE_FAKE_VALUE_FUNC14_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ...) \
+    DEFINE_FAKE_VALUE_FUNC14_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ...) \
+
+
+#define DECLARE_FAKE_VALUE_FUNC15_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ...) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_ARG(ARG0_TYPE, 0, FUNCNAME) \
+        DECLARE_ARG(ARG1_TYPE, 1, FUNCNAME) \
+        DECLARE_ARG(ARG2_TYPE, 2, FUNCNAME) \
+        DECLARE_ARG(ARG3_TYPE, 3, FUNCNAME) \
+        DECLARE_ARG(ARG4_TYPE, 4, FUNCNAME) \
+        DECLARE_ARG(ARG5_TYPE, 5, FUNCNAME) \
+        DECLARE_ARG(ARG6_TYPE, 6, FUNCNAME) \
+        DECLARE_ARG(ARG7_TYPE, 7, FUNCNAME) \
+        DECLARE_ARG(ARG8_TYPE, 8, FUNCNAME) \
+        DECLARE_ARG(ARG9_TYPE, 9, FUNCNAME) \
+        DECLARE_ARG(ARG10_TYPE, 10, FUNCNAME) \
+        DECLARE_ARG(ARG11_TYPE, 11, FUNCNAME) \
+        DECLARE_ARG(ARG12_TYPE, 12, FUNCNAME) \
+        DECLARE_ARG(ARG13_TYPE, 13, FUNCNAME) \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_VALUE_FUNCTION_VARIABLES(RETURN_TYPE) \
+        DECLARE_RETURN_VALUE_HISTORY(RETURN_TYPE) \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, custom_fake, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, va_list ap); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, *custom_fake_seq, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, va_list ap); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VALUE_FUNC15_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ...) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    RETURN_TYPE FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(ARG0_TYPE arg0, ARG1_TYPE arg1, ARG2_TYPE arg2, ARG3_TYPE arg3, ARG4_TYPE arg4, ARG5_TYPE arg5, ARG6_TYPE arg6, ARG7_TYPE arg7, ARG8_TYPE arg8, ARG9_TYPE arg9, ARG10_TYPE arg10, ARG11_TYPE arg11, ARG12_TYPE arg12, ARG13_TYPE arg13, ...){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        SAVE_ARG(FUNCNAME, 0); \
+        SAVE_ARG(FUNCNAME, 1); \
+        SAVE_ARG(FUNCNAME, 2); \
+        SAVE_ARG(FUNCNAME, 3); \
+        SAVE_ARG(FUNCNAME, 4); \
+        SAVE_ARG(FUNCNAME, 5); \
+        SAVE_ARG(FUNCNAME, 6); \
+        SAVE_ARG(FUNCNAME, 7); \
+        SAVE_ARG(FUNCNAME, 8); \
+        SAVE_ARG(FUNCNAME, 9); \
+        SAVE_ARG(FUNCNAME, 10); \
+        SAVE_ARG(FUNCNAME, 11); \
+        SAVE_ARG(FUNCNAME, 12); \
+        SAVE_ARG(FUNCNAME, 13); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+            SAVE_ARG_HISTORY(FUNCNAME, 0); \
+            SAVE_ARG_HISTORY(FUNCNAME, 1); \
+            SAVE_ARG_HISTORY(FUNCNAME, 2); \
+            SAVE_ARG_HISTORY(FUNCNAME, 3); \
+            SAVE_ARG_HISTORY(FUNCNAME, 4); \
+            SAVE_ARG_HISTORY(FUNCNAME, 5); \
+            SAVE_ARG_HISTORY(FUNCNAME, 6); \
+            SAVE_ARG_HISTORY(FUNCNAME, 7); \
+            SAVE_ARG_HISTORY(FUNCNAME, 8); \
+            SAVE_ARG_HISTORY(FUNCNAME, 9); \
+            SAVE_ARG_HISTORY(FUNCNAME, 10); \
+            SAVE_ARG_HISTORY(FUNCNAME, 11); \
+            SAVE_ARG_HISTORY(FUNCNAME, 12); \
+            SAVE_ARG_HISTORY(FUNCNAME, 13); \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                va_list ap; \
+                va_start(ap, arg13); \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, ap); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                va_end(ap); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+            else{ \
+                va_list ap; \
+                va_start(ap, arg13); \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, ap); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                va_end(ap); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+        } \
+        if(FUNCNAME##_fake.custom_fake){ \
+            RETURN_TYPE ret; \
+            va_list ap; \
+            va_start(ap, arg13); \
+            ret = FUNCNAME##_fake.custom_fake(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, ap); \
+            va_end(ap); \
+            SAVE_RET_HISTORY(FUNCNAME, ret); \
+            FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+            return ret; \
+        } \
+        RETURN_FAKE_RESULT_TS(FUNCNAME) \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VALUE_FUNC15_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ...) \
+    DECLARE_FAKE_VALUE_FUNC15_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ...) \
+    DEFINE_FAKE_VALUE_FUNC15_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ...) \
+
+
+#define DECLARE_FAKE_VALUE_FUNC16_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ...) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_ARG(ARG0_TYPE, 0, FUNCNAME) \
+        DECLARE_ARG(ARG1_TYPE, 1, FUNCNAME) \
+        DECLARE_ARG(ARG2_TYPE, 2, FUNCNAME) \
+        DECLARE_ARG(ARG3_TYPE, 3, FUNCNAME) \
+        DECLARE_ARG(ARG4_TYPE, 4, FUNCNAME) \
+        DECLARE_ARG(ARG5_TYPE, 5, FUNCNAME) \
+        DECLARE_ARG(ARG6_TYPE, 6, FUNCNAME) \
+        DECLARE_ARG(ARG7_TYPE, 7, FUNCNAME) \
+        DECLARE_ARG(ARG8_TYPE, 8, FUNCNAME) \
+        DECLARE_ARG(ARG9_TYPE, 9, FUNCNAME) \
+        DECLARE_ARG(ARG10_TYPE, 10, FUNCNAME) \
+        DECLARE_ARG(ARG11_TYPE, 11, FUNCNAME) \
+        DECLARE_ARG(ARG12_TYPE, 12, FUNCNAME) \
+        DECLARE_ARG(ARG13_TYPE, 13, FUNCNAME) \
+        DECLARE_ARG(ARG14_TYPE, 14, FUNCNAME) \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_VALUE_FUNCTION_VARIABLES(RETURN_TYPE) \
+        DECLARE_RETURN_VALUE_HISTORY(RETURN_TYPE) \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, custom_fake, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, va_list ap); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, *custom_fake_seq, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, va_list ap); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VALUE_FUNC16_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ...) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    RETURN_TYPE FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(ARG0_TYPE arg0, ARG1_TYPE arg1, ARG2_TYPE arg2, ARG3_TYPE arg3, ARG4_TYPE arg4, ARG5_TYPE arg5, ARG6_TYPE arg6, ARG7_TYPE arg7, ARG8_TYPE arg8, ARG9_TYPE arg9, ARG10_TYPE arg10, ARG11_TYPE arg11, ARG12_TYPE arg12, ARG13_TYPE arg13, ARG14_TYPE arg14, ...){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        SAVE_ARG(FUNCNAME, 0); \
+        SAVE_ARG(FUNCNAME, 1); \
+        SAVE_ARG(FUNCNAME, 2); \
+        SAVE_ARG(FUNCNAME, 3); \
+        SAVE_ARG(FUNCNAME, 4); \
+        SAVE_ARG(FUNCNAME, 5); \
+        SAVE_ARG(FUNCNAME, 6); \
+        SAVE_ARG(FUNCNAME, 7); \
+        SAVE_ARG(FUNCNAME, 8); \
+        SAVE_ARG(FUNCNAME, 9); \
+        SAVE_ARG(FUNCNAME, 10); \
+        SAVE_ARG(FUNCNAME, 11); \
+        SAVE_ARG(FUNCNAME, 12); \
+        SAVE_ARG(FUNCNAME, 13); \
+        SAVE_ARG(FUNCNAME, 14); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+            SAVE_ARG_HISTORY(FUNCNAME, 0); \
+            SAVE_ARG_HISTORY(FUNCNAME, 1); \
+            SAVE_ARG_HISTORY(FUNCNAME, 2); \
+            SAVE_ARG_HISTORY(FUNCNAME, 3); \
+            SAVE_ARG_HISTORY(FUNCNAME, 4); \
+            SAVE_ARG_HISTORY(FUNCNAME, 5); \
+            SAVE_ARG_HISTORY(FUNCNAME, 6); \
+            SAVE_ARG_HISTORY(FUNCNAME, 7); \
+            SAVE_ARG_HISTORY(FUNCNAME, 8); \
+            SAVE_ARG_HISTORY(FUNCNAME, 9); \
+            SAVE_ARG_HISTORY(FUNCNAME, 10); \
+            SAVE_ARG_HISTORY(FUNCNAME, 11); \
+            SAVE_ARG_HISTORY(FUNCNAME, 12); \
+            SAVE_ARG_HISTORY(FUNCNAME, 13); \
+            SAVE_ARG_HISTORY(FUNCNAME, 14); \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                va_list ap; \
+                va_start(ap, arg14); \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, ap); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                va_end(ap); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+            else{ \
+                va_list ap; \
+                va_start(ap, arg14); \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, ap); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                va_end(ap); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+        } \
+        if(FUNCNAME##_fake.custom_fake){ \
+            RETURN_TYPE ret; \
+            va_list ap; \
+            va_start(ap, arg14); \
+            ret = FUNCNAME##_fake.custom_fake(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, ap); \
+            va_end(ap); \
+            SAVE_RET_HISTORY(FUNCNAME, ret); \
+            FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+            return ret; \
+        } \
+        RETURN_FAKE_RESULT_TS(FUNCNAME) \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VALUE_FUNC16_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ...) \
+    DECLARE_FAKE_VALUE_FUNC16_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ...) \
+    DEFINE_FAKE_VALUE_FUNC16_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ...) \
+
+
+#define DECLARE_FAKE_VALUE_FUNC17_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ...) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_ARG(ARG0_TYPE, 0, FUNCNAME) \
+        DECLARE_ARG(ARG1_TYPE, 1, FUNCNAME) \
+        DECLARE_ARG(ARG2_TYPE, 2, FUNCNAME) \
+        DECLARE_ARG(ARG3_TYPE, 3, FUNCNAME) \
+        DECLARE_ARG(ARG4_TYPE, 4, FUNCNAME) \
+        DECLARE_ARG(ARG5_TYPE, 5, FUNCNAME) \
+        DECLARE_ARG(ARG6_TYPE, 6, FUNCNAME) \
+        DECLARE_ARG(ARG7_TYPE, 7, FUNCNAME) \
+        DECLARE_ARG(ARG8_TYPE, 8, FUNCNAME) \
+        DECLARE_ARG(ARG9_TYPE, 9, FUNCNAME) \
+        DECLARE_ARG(ARG10_TYPE, 10, FUNCNAME) \
+        DECLARE_ARG(ARG11_TYPE, 11, FUNCNAME) \
+        DECLARE_ARG(ARG12_TYPE, 12, FUNCNAME) \
+        DECLARE_ARG(ARG13_TYPE, 13, FUNCNAME) \
+        DECLARE_ARG(ARG14_TYPE, 14, FUNCNAME) \
+        DECLARE_ARG(ARG15_TYPE, 15, FUNCNAME) \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_VALUE_FUNCTION_VARIABLES(RETURN_TYPE) \
+        DECLARE_RETURN_VALUE_HISTORY(RETURN_TYPE) \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, custom_fake, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, va_list ap); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, *custom_fake_seq, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, va_list ap); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VALUE_FUNC17_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ...) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    RETURN_TYPE FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(ARG0_TYPE arg0, ARG1_TYPE arg1, ARG2_TYPE arg2, ARG3_TYPE arg3, ARG4_TYPE arg4, ARG5_TYPE arg5, ARG6_TYPE arg6, ARG7_TYPE arg7, ARG8_TYPE arg8, ARG9_TYPE arg9, ARG10_TYPE arg10, ARG11_TYPE arg11, ARG12_TYPE arg12, ARG13_TYPE arg13, ARG14_TYPE arg14, ARG15_TYPE arg15, ...){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        SAVE_ARG(FUNCNAME, 0); \
+        SAVE_ARG(FUNCNAME, 1); \
+        SAVE_ARG(FUNCNAME, 2); \
+        SAVE_ARG(FUNCNAME, 3); \
+        SAVE_ARG(FUNCNAME, 4); \
+        SAVE_ARG(FUNCNAME, 5); \
+        SAVE_ARG(FUNCNAME, 6); \
+        SAVE_ARG(FUNCNAME, 7); \
+        SAVE_ARG(FUNCNAME, 8); \
+        SAVE_ARG(FUNCNAME, 9); \
+        SAVE_ARG(FUNCNAME, 10); \
+        SAVE_ARG(FUNCNAME, 11); \
+        SAVE_ARG(FUNCNAME, 12); \
+        SAVE_ARG(FUNCNAME, 13); \
+        SAVE_ARG(FUNCNAME, 14); \
+        SAVE_ARG(FUNCNAME, 15); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+            SAVE_ARG_HISTORY(FUNCNAME, 0); \
+            SAVE_ARG_HISTORY(FUNCNAME, 1); \
+            SAVE_ARG_HISTORY(FUNCNAME, 2); \
+            SAVE_ARG_HISTORY(FUNCNAME, 3); \
+            SAVE_ARG_HISTORY(FUNCNAME, 4); \
+            SAVE_ARG_HISTORY(FUNCNAME, 5); \
+            SAVE_ARG_HISTORY(FUNCNAME, 6); \
+            SAVE_ARG_HISTORY(FUNCNAME, 7); \
+            SAVE_ARG_HISTORY(FUNCNAME, 8); \
+            SAVE_ARG_HISTORY(FUNCNAME, 9); \
+            SAVE_ARG_HISTORY(FUNCNAME, 10); \
+            SAVE_ARG_HISTORY(FUNCNAME, 11); \
+            SAVE_ARG_HISTORY(FUNCNAME, 12); \
+            SAVE_ARG_HISTORY(FUNCNAME, 13); \
+            SAVE_ARG_HISTORY(FUNCNAME, 14); \
+            SAVE_ARG_HISTORY(FUNCNAME, 15); \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                va_list ap; \
+                va_start(ap, arg15); \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, ap); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                va_end(ap); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+            else{ \
+                va_list ap; \
+                va_start(ap, arg15); \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, ap); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                va_end(ap); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+        } \
+        if(FUNCNAME##_fake.custom_fake){ \
+            RETURN_TYPE ret; \
+            va_list ap; \
+            va_start(ap, arg15); \
+            ret = FUNCNAME##_fake.custom_fake(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, ap); \
+            va_end(ap); \
+            SAVE_RET_HISTORY(FUNCNAME, ret); \
+            FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+            return ret; \
+        } \
+        RETURN_FAKE_RESULT_TS(FUNCNAME) \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VALUE_FUNC17_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ...) \
+    DECLARE_FAKE_VALUE_FUNC17_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ...) \
+    DEFINE_FAKE_VALUE_FUNC17_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ...) \
+
+
+#define DECLARE_FAKE_VALUE_FUNC18_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ...) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_ARG(ARG0_TYPE, 0, FUNCNAME) \
+        DECLARE_ARG(ARG1_TYPE, 1, FUNCNAME) \
+        DECLARE_ARG(ARG2_TYPE, 2, FUNCNAME) \
+        DECLARE_ARG(ARG3_TYPE, 3, FUNCNAME) \
+        DECLARE_ARG(ARG4_TYPE, 4, FUNCNAME) \
+        DECLARE_ARG(ARG5_TYPE, 5, FUNCNAME) \
+        DECLARE_ARG(ARG6_TYPE, 6, FUNCNAME) \
+        DECLARE_ARG(ARG7_TYPE, 7, FUNCNAME) \
+        DECLARE_ARG(ARG8_TYPE, 8, FUNCNAME) \
+        DECLARE_ARG(ARG9_TYPE, 9, FUNCNAME) \
+        DECLARE_ARG(ARG10_TYPE, 10, FUNCNAME) \
+        DECLARE_ARG(ARG11_TYPE, 11, FUNCNAME) \
+        DECLARE_ARG(ARG12_TYPE, 12, FUNCNAME) \
+        DECLARE_ARG(ARG13_TYPE, 13, FUNCNAME) \
+        DECLARE_ARG(ARG14_TYPE, 14, FUNCNAME) \
+        DECLARE_ARG(ARG15_TYPE, 15, FUNCNAME) \
+        DECLARE_ARG(ARG16_TYPE, 16, FUNCNAME) \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_VALUE_FUNCTION_VARIABLES(RETURN_TYPE) \
+        DECLARE_RETURN_VALUE_HISTORY(RETURN_TYPE) \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, custom_fake, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, va_list ap); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, *custom_fake_seq, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, va_list ap); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VALUE_FUNC18_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ...) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    RETURN_TYPE FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(ARG0_TYPE arg0, ARG1_TYPE arg1, ARG2_TYPE arg2, ARG3_TYPE arg3, ARG4_TYPE arg4, ARG5_TYPE arg5, ARG6_TYPE arg6, ARG7_TYPE arg7, ARG8_TYPE arg8, ARG9_TYPE arg9, ARG10_TYPE arg10, ARG11_TYPE arg11, ARG12_TYPE arg12, ARG13_TYPE arg13, ARG14_TYPE arg14, ARG15_TYPE arg15, ARG16_TYPE arg16, ...){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        SAVE_ARG(FUNCNAME, 0); \
+        SAVE_ARG(FUNCNAME, 1); \
+        SAVE_ARG(FUNCNAME, 2); \
+        SAVE_ARG(FUNCNAME, 3); \
+        SAVE_ARG(FUNCNAME, 4); \
+        SAVE_ARG(FUNCNAME, 5); \
+        SAVE_ARG(FUNCNAME, 6); \
+        SAVE_ARG(FUNCNAME, 7); \
+        SAVE_ARG(FUNCNAME, 8); \
+        SAVE_ARG(FUNCNAME, 9); \
+        SAVE_ARG(FUNCNAME, 10); \
+        SAVE_ARG(FUNCNAME, 11); \
+        SAVE_ARG(FUNCNAME, 12); \
+        SAVE_ARG(FUNCNAME, 13); \
+        SAVE_ARG(FUNCNAME, 14); \
+        SAVE_ARG(FUNCNAME, 15); \
+        SAVE_ARG(FUNCNAME, 16); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+            SAVE_ARG_HISTORY(FUNCNAME, 0); \
+            SAVE_ARG_HISTORY(FUNCNAME, 1); \
+            SAVE_ARG_HISTORY(FUNCNAME, 2); \
+            SAVE_ARG_HISTORY(FUNCNAME, 3); \
+            SAVE_ARG_HISTORY(FUNCNAME, 4); \
+            SAVE_ARG_HISTORY(FUNCNAME, 5); \
+            SAVE_ARG_HISTORY(FUNCNAME, 6); \
+            SAVE_ARG_HISTORY(FUNCNAME, 7); \
+            SAVE_ARG_HISTORY(FUNCNAME, 8); \
+            SAVE_ARG_HISTORY(FUNCNAME, 9); \
+            SAVE_ARG_HISTORY(FUNCNAME, 10); \
+            SAVE_ARG_HISTORY(FUNCNAME, 11); \
+            SAVE_ARG_HISTORY(FUNCNAME, 12); \
+            SAVE_ARG_HISTORY(FUNCNAME, 13); \
+            SAVE_ARG_HISTORY(FUNCNAME, 14); \
+            SAVE_ARG_HISTORY(FUNCNAME, 15); \
+            SAVE_ARG_HISTORY(FUNCNAME, 16); \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                va_list ap; \
+                va_start(ap, arg16); \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, ap); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                va_end(ap); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+            else{ \
+                va_list ap; \
+                va_start(ap, arg16); \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, ap); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                va_end(ap); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+        } \
+        if(FUNCNAME##_fake.custom_fake){ \
+            RETURN_TYPE ret; \
+            va_list ap; \
+            va_start(ap, arg16); \
+            ret = FUNCNAME##_fake.custom_fake(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, ap); \
+            va_end(ap); \
+            SAVE_RET_HISTORY(FUNCNAME, ret); \
+            FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+            return ret; \
+        } \
+        RETURN_FAKE_RESULT_TS(FUNCNAME) \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VALUE_FUNC18_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ...) \
+    DECLARE_FAKE_VALUE_FUNC18_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ...) \
+    DEFINE_FAKE_VALUE_FUNC18_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ...) \
+
+
+#define DECLARE_FAKE_VALUE_FUNC19_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ARG17_TYPE, ...) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_ARG(ARG0_TYPE, 0, FUNCNAME) \
+        DECLARE_ARG(ARG1_TYPE, 1, FUNCNAME) \
+        DECLARE_ARG(ARG2_TYPE, 2, FUNCNAME) \
+        DECLARE_ARG(ARG3_TYPE, 3, FUNCNAME) \
+        DECLARE_ARG(ARG4_TYPE, 4, FUNCNAME) \
+        DECLARE_ARG(ARG5_TYPE, 5, FUNCNAME) \
+        DECLARE_ARG(ARG6_TYPE, 6, FUNCNAME) \
+        DECLARE_ARG(ARG7_TYPE, 7, FUNCNAME) \
+        DECLARE_ARG(ARG8_TYPE, 8, FUNCNAME) \
+        DECLARE_ARG(ARG9_TYPE, 9, FUNCNAME) \
+        DECLARE_ARG(ARG10_TYPE, 10, FUNCNAME) \
+        DECLARE_ARG(ARG11_TYPE, 11, FUNCNAME) \
+        DECLARE_ARG(ARG12_TYPE, 12, FUNCNAME) \
+        DECLARE_ARG(ARG13_TYPE, 13, FUNCNAME) \
+        DECLARE_ARG(ARG14_TYPE, 14, FUNCNAME) \
+        DECLARE_ARG(ARG15_TYPE, 15, FUNCNAME) \
+        DECLARE_ARG(ARG16_TYPE, 16, FUNCNAME) \
+        DECLARE_ARG(ARG17_TYPE, 17, FUNCNAME) \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_VALUE_FUNCTION_VARIABLES(RETURN_TYPE) \
+        DECLARE_RETURN_VALUE_HISTORY(RETURN_TYPE) \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, custom_fake, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ARG17_TYPE, va_list ap); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, *custom_fake_seq, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ARG17_TYPE, va_list ap); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VALUE_FUNC19_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ARG17_TYPE, ...) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    RETURN_TYPE FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(ARG0_TYPE arg0, ARG1_TYPE arg1, ARG2_TYPE arg2, ARG3_TYPE arg3, ARG4_TYPE arg4, ARG5_TYPE arg5, ARG6_TYPE arg6, ARG7_TYPE arg7, ARG8_TYPE arg8, ARG9_TYPE arg9, ARG10_TYPE arg10, ARG11_TYPE arg11, ARG12_TYPE arg12, ARG13_TYPE arg13, ARG14_TYPE arg14, ARG15_TYPE arg15, ARG16_TYPE arg16, ARG17_TYPE arg17, ...){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        SAVE_ARG(FUNCNAME, 0); \
+        SAVE_ARG(FUNCNAME, 1); \
+        SAVE_ARG(FUNCNAME, 2); \
+        SAVE_ARG(FUNCNAME, 3); \
+        SAVE_ARG(FUNCNAME, 4); \
+        SAVE_ARG(FUNCNAME, 5); \
+        SAVE_ARG(FUNCNAME, 6); \
+        SAVE_ARG(FUNCNAME, 7); \
+        SAVE_ARG(FUNCNAME, 8); \
+        SAVE_ARG(FUNCNAME, 9); \
+        SAVE_ARG(FUNCNAME, 10); \
+        SAVE_ARG(FUNCNAME, 11); \
+        SAVE_ARG(FUNCNAME, 12); \
+        SAVE_ARG(FUNCNAME, 13); \
+        SAVE_ARG(FUNCNAME, 14); \
+        SAVE_ARG(FUNCNAME, 15); \
+        SAVE_ARG(FUNCNAME, 16); \
+        SAVE_ARG(FUNCNAME, 17); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+            SAVE_ARG_HISTORY(FUNCNAME, 0); \
+            SAVE_ARG_HISTORY(FUNCNAME, 1); \
+            SAVE_ARG_HISTORY(FUNCNAME, 2); \
+            SAVE_ARG_HISTORY(FUNCNAME, 3); \
+            SAVE_ARG_HISTORY(FUNCNAME, 4); \
+            SAVE_ARG_HISTORY(FUNCNAME, 5); \
+            SAVE_ARG_HISTORY(FUNCNAME, 6); \
+            SAVE_ARG_HISTORY(FUNCNAME, 7); \
+            SAVE_ARG_HISTORY(FUNCNAME, 8); \
+            SAVE_ARG_HISTORY(FUNCNAME, 9); \
+            SAVE_ARG_HISTORY(FUNCNAME, 10); \
+            SAVE_ARG_HISTORY(FUNCNAME, 11); \
+            SAVE_ARG_HISTORY(FUNCNAME, 12); \
+            SAVE_ARG_HISTORY(FUNCNAME, 13); \
+            SAVE_ARG_HISTORY(FUNCNAME, 14); \
+            SAVE_ARG_HISTORY(FUNCNAME, 15); \
+            SAVE_ARG_HISTORY(FUNCNAME, 16); \
+            SAVE_ARG_HISTORY(FUNCNAME, 17); \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                va_list ap; \
+                va_start(ap, arg17); \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, ap); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                va_end(ap); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+            else{ \
+                va_list ap; \
+                va_start(ap, arg17); \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, ap); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                va_end(ap); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+        } \
+        if(FUNCNAME##_fake.custom_fake){ \
+            RETURN_TYPE ret; \
+            va_list ap; \
+            va_start(ap, arg17); \
+            ret = FUNCNAME##_fake.custom_fake(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, ap); \
+            va_end(ap); \
+            SAVE_RET_HISTORY(FUNCNAME, ret); \
+            FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+            return ret; \
+        } \
+        RETURN_FAKE_RESULT_TS(FUNCNAME) \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VALUE_FUNC19_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ARG17_TYPE, ...) \
+    DECLARE_FAKE_VALUE_FUNC19_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ARG17_TYPE, ...) \
+    DEFINE_FAKE_VALUE_FUNC19_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ARG17_TYPE, ...) \
+
+
+#define DECLARE_FAKE_VALUE_FUNC20_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ARG17_TYPE, ARG18_TYPE, ...) \
+    typedef struct FUNCNAME##_Fake { \
+        DECLARE_ARG(ARG0_TYPE, 0, FUNCNAME) \
+        DECLARE_ARG(ARG1_TYPE, 1, FUNCNAME) \
+        DECLARE_ARG(ARG2_TYPE, 2, FUNCNAME) \
+        DECLARE_ARG(ARG3_TYPE, 3, FUNCNAME) \
+        DECLARE_ARG(ARG4_TYPE, 4, FUNCNAME) \
+        DECLARE_ARG(ARG5_TYPE, 5, FUNCNAME) \
+        DECLARE_ARG(ARG6_TYPE, 6, FUNCNAME) \
+        DECLARE_ARG(ARG7_TYPE, 7, FUNCNAME) \
+        DECLARE_ARG(ARG8_TYPE, 8, FUNCNAME) \
+        DECLARE_ARG(ARG9_TYPE, 9, FUNCNAME) \
+        DECLARE_ARG(ARG10_TYPE, 10, FUNCNAME) \
+        DECLARE_ARG(ARG11_TYPE, 11, FUNCNAME) \
+        DECLARE_ARG(ARG12_TYPE, 12, FUNCNAME) \
+        DECLARE_ARG(ARG13_TYPE, 13, FUNCNAME) \
+        DECLARE_ARG(ARG14_TYPE, 14, FUNCNAME) \
+        DECLARE_ARG(ARG15_TYPE, 15, FUNCNAME) \
+        DECLARE_ARG(ARG16_TYPE, 16, FUNCNAME) \
+        DECLARE_ARG(ARG17_TYPE, 17, FUNCNAME) \
+        DECLARE_ARG(ARG18_TYPE, 18, FUNCNAME) \
+        DECLARE_PTHREAD_MUTEX \
+        DECLARE_ALL_FUNC_COMMON \
+        DECLARE_VALUE_FUNCTION_VARIABLES(RETURN_TYPE) \
+        DECLARE_RETURN_VALUE_HISTORY(RETURN_TYPE) \
+        DECLARE_CUSTOM_FAKE_SEQ_VARIABLES \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, custom_fake, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ARG17_TYPE, ARG18_TYPE, va_list ap); \
+        CUSTOM_FFF_FUNCTION_TEMPLATE(RETURN_TYPE, *custom_fake_seq, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ARG17_TYPE, ARG18_TYPE, va_list ap); \
+    } FUNCNAME##_Fake; \
+    extern FUNCNAME##_Fake FUNCNAME##_fake; \
+    void FUNCNAME##_reset(void); \
+
+#define DEFINE_FAKE_VALUE_FUNC20_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ARG17_TYPE, ARG18_TYPE, ...) \
+    FUNCNAME##_Fake FUNCNAME##_fake; \
+    RETURN_TYPE FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(ARG0_TYPE arg0, ARG1_TYPE arg1, ARG2_TYPE arg2, ARG3_TYPE arg3, ARG4_TYPE arg4, ARG5_TYPE arg5, ARG6_TYPE arg6, ARG7_TYPE arg7, ARG8_TYPE arg8, ARG9_TYPE arg9, ARG10_TYPE arg10, ARG11_TYPE arg11, ARG12_TYPE arg12, ARG13_TYPE arg13, ARG14_TYPE arg14, ARG15_TYPE arg15, ARG16_TYPE arg16, ARG17_TYPE arg17, ARG18_TYPE arg18, ...){ \
+        FFF_PTHREAD_MUTEX_LOCK(FUNCNAME); \
+        SAVE_ARG(FUNCNAME, 0); \
+        SAVE_ARG(FUNCNAME, 1); \
+        SAVE_ARG(FUNCNAME, 2); \
+        SAVE_ARG(FUNCNAME, 3); \
+        SAVE_ARG(FUNCNAME, 4); \
+        SAVE_ARG(FUNCNAME, 5); \
+        SAVE_ARG(FUNCNAME, 6); \
+        SAVE_ARG(FUNCNAME, 7); \
+        SAVE_ARG(FUNCNAME, 8); \
+        SAVE_ARG(FUNCNAME, 9); \
+        SAVE_ARG(FUNCNAME, 10); \
+        SAVE_ARG(FUNCNAME, 11); \
+        SAVE_ARG(FUNCNAME, 12); \
+        SAVE_ARG(FUNCNAME, 13); \
+        SAVE_ARG(FUNCNAME, 14); \
+        SAVE_ARG(FUNCNAME, 15); \
+        SAVE_ARG(FUNCNAME, 16); \
+        SAVE_ARG(FUNCNAME, 17); \
+        SAVE_ARG(FUNCNAME, 18); \
+        if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){ \
+            SAVE_ARG_HISTORY(FUNCNAME, 0); \
+            SAVE_ARG_HISTORY(FUNCNAME, 1); \
+            SAVE_ARG_HISTORY(FUNCNAME, 2); \
+            SAVE_ARG_HISTORY(FUNCNAME, 3); \
+            SAVE_ARG_HISTORY(FUNCNAME, 4); \
+            SAVE_ARG_HISTORY(FUNCNAME, 5); \
+            SAVE_ARG_HISTORY(FUNCNAME, 6); \
+            SAVE_ARG_HISTORY(FUNCNAME, 7); \
+            SAVE_ARG_HISTORY(FUNCNAME, 8); \
+            SAVE_ARG_HISTORY(FUNCNAME, 9); \
+            SAVE_ARG_HISTORY(FUNCNAME, 10); \
+            SAVE_ARG_HISTORY(FUNCNAME, 11); \
+            SAVE_ARG_HISTORY(FUNCNAME, 12); \
+            SAVE_ARG_HISTORY(FUNCNAME, 13); \
+            SAVE_ARG_HISTORY(FUNCNAME, 14); \
+            SAVE_ARG_HISTORY(FUNCNAME, 15); \
+            SAVE_ARG_HISTORY(FUNCNAME, 16); \
+            SAVE_ARG_HISTORY(FUNCNAME, 17); \
+            SAVE_ARG_HISTORY(FUNCNAME, 18); \
+        } \
+        else{ \
+            HISTORY_DROPPED(FUNCNAME); \
+        } \
+        INCREMENT_CALL_COUNT(FUNCNAME); \
+        REGISTER_CALL(FUNCNAME); \
+        if (FUNCNAME##_fake.custom_fake_seq_len){ /* a sequence of custom fakes */ \
+            if (FUNCNAME##_fake.custom_fake_seq_idx < FUNCNAME##_fake.custom_fake_seq_len){ \
+                va_list ap; \
+                va_start(ap, arg18); \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, ap); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                va_end(ap); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+            else{ \
+                va_list ap; \
+                va_start(ap, arg18); \
+                RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, ap); \
+                SAVE_RET_HISTORY(FUNCNAME, ret); \
+                va_end(ap); \
+                FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+                return ret; \
+            } \
+        } \
+        if(FUNCNAME##_fake.custom_fake){ \
+            RETURN_TYPE ret; \
+            va_list ap; \
+            va_start(ap, arg18); \
+            ret = FUNCNAME##_fake.custom_fake(arg0, arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12, arg13, arg14, arg15, arg16, arg17, arg18, ap); \
+            va_end(ap); \
+            SAVE_RET_HISTORY(FUNCNAME, ret); \
+            FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME); \
+            return ret; \
+        } \
+        RETURN_FAKE_RESULT_TS(FUNCNAME) \
+    } \
+    DEFINE_RESET_FUNCTION_TS(FUNCNAME) \
+
+#define FAKE_VALUE_FUNC20_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ARG17_TYPE, ARG18_TYPE, ...) \
+    DECLARE_FAKE_VALUE_FUNC20_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ARG17_TYPE, ARG18_TYPE, ...) \
+    DEFINE_FAKE_VALUE_FUNC20_VARARG_TS(RETURN_TYPE, FUNCNAME, ARG0_TYPE, ARG1_TYPE, ARG2_TYPE, ARG3_TYPE, ARG4_TYPE, ARG5_TYPE, ARG6_TYPE, ARG7_TYPE, ARG8_TYPE, ARG9_TYPE, ARG10_TYPE, ARG11_TYPE, ARG12_TYPE, ARG13_TYPE, ARG14_TYPE, ARG15_TYPE, ARG16_TYPE, ARG17_TYPE, ARG18_TYPE, ...) \
+
 /* MSVC expand macro fix */
 #define EXPAND(x) x
 
@@ -6442,6 +13043,35 @@ FFF_END_EXTERN_C
 
 
 
+#define FAKE_VALUE_FUNC_TS(...)     EXPAND(FUNC_VALUE_TS_(PP_NARG_MINUS2(__VA_ARGS__), __VA_ARGS__))
+
+#define FUNC_VALUE_TS_(N,...)     EXPAND(FUNC_VALUE_TS_N(N,__VA_ARGS__))
+
+#define FUNC_VALUE_TS_N(N,...)     EXPAND(FAKE_VALUE_FUNC ## N ## _TS(__VA_ARGS__))
+
+
+#define FAKE_VOID_FUNC_TS(...)     EXPAND(FUNC_VOID_TS_(PP_NARG_MINUS1(__VA_ARGS__), __VA_ARGS__))
+
+#define FUNC_VOID_TS_(N,...)     EXPAND(FUNC_VOID_TS_N(N,__VA_ARGS__))
+
+#define FUNC_VOID_TS_N(N,...)     EXPAND(FAKE_VOID_FUNC ## N ## _TS(__VA_ARGS__))
+
+
+#define FAKE_VALUE_FUNC_VARARG_TS(...)     EXPAND(FUNC_VALUE_VARARG_TS_(PP_NARG_MINUS2(__VA_ARGS__), __VA_ARGS__))
+
+#define FUNC_VALUE_VARARG_TS_(N,...)     EXPAND(FUNC_VALUE_VARARG_TS_N(N,__VA_ARGS__))
+
+#define FUNC_VALUE_VARARG_TS_N(N,...)     EXPAND(FAKE_VALUE_FUNC ## N ## _VARARG ## _TS(__VA_ARGS__))
+
+
+#define FAKE_VOID_FUNC_VARARG_TS(...)     EXPAND(FUNC_VOID_VARARG_TS_(PP_NARG_MINUS1(__VA_ARGS__), __VA_ARGS__))
+
+#define FUNC_VOID_VARARG_TS_(N,...)     EXPAND(FUNC_VOID_VARARG_TS_N(N,__VA_ARGS__))
+
+#define FUNC_VOID_VARARG_TS_N(N,...)     EXPAND(FAKE_VOID_FUNC ## N ## _VARARG ## _TS(__VA_ARGS__))
+
+
+
 /* DECLARE FAKE FUNCTIONS - PLACE IN HEADER FILES */
 
 #define DECLARE_FAKE_VALUE_FUNC(...)     EXPAND(DECLARE_FUNC_VALUE_(PP_NARG_MINUS2(__VA_ARGS__), __VA_ARGS__))
@@ -6473,6 +13103,35 @@ FFF_END_EXTERN_C
 
 
 
+#define DECLARE_FAKE_VALUE_FUNC_TS(...)     EXPAND(DECLARE_FUNC_VALUE_TS_(PP_NARG_MINUS2(__VA_ARGS__), __VA_ARGS__))
+
+#define DECLARE_FUNC_VALUE_TS_(N,...)     EXPAND(DECLARE_FUNC_VALUE_TS_N(N,__VA_ARGS__))
+
+#define DECLARE_FUNC_VALUE_TS_N(N,...)     EXPAND(DECLARE_FAKE_VALUE_FUNC ## N ## _TS(__VA_ARGS__))
+
+
+#define DECLARE_FAKE_VOID_FUNC_TS(...)     EXPAND(DECLARE_FUNC_VOID_TS_(PP_NARG_MINUS1(__VA_ARGS__), __VA_ARGS__))
+
+#define DECLARE_FUNC_VOID_TS_(N,...)     EXPAND(DECLARE_FUNC_VOID_TS_N(N,__VA_ARGS__))
+
+#define DECLARE_FUNC_VOID_TS_N(N,...)     EXPAND(DECLARE_FAKE_VOID_FUNC ## N ## _TS(__VA_ARGS__))
+
+
+#define DECLARE_FAKE_VALUE_FUNC_VARARG_TS(...)     EXPAND(DECLARE_FUNC_VALUE_VARARG_TS_(PP_NARG_MINUS2(__VA_ARGS__), __VA_ARGS__))
+
+#define DECLARE_FUNC_VALUE_VARARG_TS_(N,...)     EXPAND(DECLARE_FUNC_VALUE_VARARG_TS_N(N,__VA_ARGS__))
+
+#define DECLARE_FUNC_VALUE_VARARG_TS_N(N,...)     EXPAND(DECLARE_FAKE_VALUE_FUNC ## N ## _VARARG ## _TS(__VA_ARGS__))
+
+
+#define DECLARE_FAKE_VOID_FUNC_VARARG_TS(...)     EXPAND(DECLARE_FUNC_VOID_VARARG_TS_(PP_NARG_MINUS1(__VA_ARGS__), __VA_ARGS__))
+
+#define DECLARE_FUNC_VOID_VARARG_TS_(N,...)     EXPAND(DECLARE_FUNC_VOID_VARARG_TS_N(N,__VA_ARGS__))
+
+#define DECLARE_FUNC_VOID_VARARG_TS_N(N,...)     EXPAND(DECLARE_FAKE_VOID_FUNC ## N ## _VARARG ## _TS(__VA_ARGS__))
+
+
+
 /* DEFINE FAKE FUNCTIONS - PLACE IN SOURCE FILES */
 
 #define DEFINE_FAKE_VALUE_FUNC(...)     EXPAND(DEFINE_FUNC_VALUE_(PP_NARG_MINUS2(__VA_ARGS__), __VA_ARGS__))
@@ -6501,6 +13160,35 @@ FFF_END_EXTERN_C
 #define DEFINE_FUNC_VOID_VARARG_(N,...)     EXPAND(DEFINE_FUNC_VOID_VARARG_N(N,__VA_ARGS__))
 
 #define DEFINE_FUNC_VOID_VARARG_N(N,...)     EXPAND(DEFINE_FAKE_VOID_FUNC ## N ## _VARARG(__VA_ARGS__))
+
+
+
+#define DEFINE_FAKE_VALUE_FUNC_TS(...)     EXPAND(DEFINE_FUNC_VALUE_TS_(PP_NARG_MINUS2(__VA_ARGS__), __VA_ARGS__))
+
+#define DEFINE_FUNC_VALUE_TS_(N,...)     EXPAND(DEFINE_FUNC_VALUE_TS_N(N,__VA_ARGS__))
+
+#define DEFINE_FUNC_VALUE_TS_N(N,...)     EXPAND(DEFINE_FAKE_VALUE_FUNC ## N ## _TS(__VA_ARGS__))
+
+
+#define DEFINE_FAKE_VOID_FUNC_TS(...)     EXPAND(DEFINE_FUNC_VOID_TS_(PP_NARG_MINUS1(__VA_ARGS__), __VA_ARGS__))
+
+#define DEFINE_FUNC_VOID_TS_(N,...)     EXPAND(DEFINE_FUNC_VOID_TS_N(N,__VA_ARGS__))
+
+#define DEFINE_FUNC_VOID_TS_N(N,...)     EXPAND(DEFINE_FAKE_VOID_FUNC ## N ## _TS(__VA_ARGS__))
+
+
+#define DEFINE_FAKE_VALUE_FUNC_VARARG_TS(...)     EXPAND(DEFINE_FUNC_VALUE_VARARG_TS_(PP_NARG_MINUS2(__VA_ARGS__), __VA_ARGS__))
+
+#define DEFINE_FUNC_VALUE_VARARG_TS_(N,...)     EXPAND(DEFINE_FUNC_VALUE_VARARG_TS_N(N,__VA_ARGS__))
+
+#define DEFINE_FUNC_VALUE_VARARG_TS_N(N,...)     EXPAND(DEFINE_FAKE_VALUE_FUNC ## N ## _VARARG ## _TS(__VA_ARGS__))
+
+
+#define DEFINE_FAKE_VOID_FUNC_VARARG_TS(...)     EXPAND(DEFINE_FUNC_VOID_VARARG_TS_(PP_NARG_MINUS1(__VA_ARGS__), __VA_ARGS__))
+
+#define DEFINE_FUNC_VOID_VARARG_TS_(N,...)     EXPAND(DEFINE_FUNC_VOID_VARARG_TS_N(N,__VA_ARGS__))
+
+#define DEFINE_FUNC_VOID_VARARG_TS_N(N,...)     EXPAND(DEFINE_FAKE_VOID_FUNC ## N ## _VARARG ## _TS(__VA_ARGS__))
 
 
 

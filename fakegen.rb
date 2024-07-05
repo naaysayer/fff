@@ -14,7 +14,9 @@ end
 
 def include_dependencies
   putd "#include <stdarg.h>"
-  putd "#include <string.h> /* For memset and memcpy */"
+  putd "#include <string.h>  /* For memset and memcpy */"
+  putd "#include <pthread.h> /* For pthread_mutex */"
+  putd "#include <errno.h>   /* For EINVAL */"
   puts
 end
 
@@ -55,6 +57,7 @@ end
 
 # ------  Helper macros to use internally ------ #
 def output_internal_helper_macros
+  puts
   putd "/* -- INTERNAL HELPER MACROS -- */"
 
   define_return_sequence_helper
@@ -72,8 +75,13 @@ def output_internal_helper_macros
   define_custom_fake_seq_variables_helper
   define_increment_call_count_helper
   define_return_fake_result_helper
+  define_return_fake_result_helper_ts
   define_extern_c_helper
   define_reset_fake_helper
+  define_reset_fake_helper_ts
+  declare_pthread_mutex
+  define_pthread_mutex_lock
+  define_pthread_mutex_unlock
 
   putd "/* -- END INTERNAL HELPER MACROS -- */"
   puts
@@ -204,6 +212,30 @@ def define_increment_call_count_helper
   }
 end
 
+def define_return_fake_result_helper_ts
+  puts
+  putd_backslash "#define RETURN_FAKE_RESULT_TS(FUNCNAME)"
+  indent {
+    putd_backslash "if (FUNCNAME##_fake.return_val_seq_len){ /* then its a sequence */"
+    indent {
+      putd_backslash "if(FUNCNAME##_fake.return_val_seq_idx < FUNCNAME##_fake.return_val_seq_len) {"
+      indent {
+        putd_backslash "SAVE_RET_HISTORY(FUNCNAME, FUNCNAME##_fake.return_val_seq[FUNCNAME##_fake.return_val_seq_idx])"
+        putd_backslash "FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME);"
+        putd_backslash "return FUNCNAME##_fake.return_val_seq[FUNCNAME##_fake.return_val_seq_idx++];"
+      }
+      putd_backslash "}"
+      putd_backslash "SAVE_RET_HISTORY(FUNCNAME, FUNCNAME##_fake.return_val_seq[FUNCNAME##_fake.return_val_seq_len-1])"
+      putd_backslash "FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME);"
+      putd_backslash "return FUNCNAME##_fake.return_val_seq[FUNCNAME##_fake.return_val_seq_len-1]; /* return last element */"
+    }
+    putd_backslash "}"
+    putd_backslash "SAVE_RET_HISTORY(FUNCNAME, FUNCNAME##_fake.return_val)"
+    putd_backslash "FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME);"
+    putd_backslash "return FUNCNAME##_fake.return_val;"
+  }
+end
+
 def define_return_fake_result_helper
   puts
   putd_backslash "#define RETURN_FAKE_RESULT(FUNCNAME)"
@@ -240,6 +272,23 @@ def define_extern_c_helper
   putd "#endif  /* cpp/ansi c */"
 end
 
+def define_reset_fake_helper_ts
+  puts
+  putd_backslash "#define DEFINE_RESET_FUNCTION_TS(FUNCNAME)"
+  indent {
+    putd_backslash "void FUNCNAME##_reset(void){"
+    indent {
+      putd_backslash "FFF_PTHREAD_MUTEX_LOCK(FUNCNAME);"
+      putd_backslash "memset((void*)&FUNCNAME##_fake, 0, sizeof(FUNCNAME##_fake) - sizeof(FUNCNAME##_fake.custom_fake) - sizeof(FUNCNAME##_fake.custom_fake_seq));"
+      putd_backslash "FUNCNAME##_fake.custom_fake = NULL;"
+      putd_backslash "FUNCNAME##_fake.custom_fake_seq = NULL;"
+      putd_backslash "FUNCNAME##_fake.arg_history_len = FFF_ARG_HISTORY_LEN;"
+      putd_backslash "FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME);"
+    }
+    putd "}"
+  }
+end
+
 def define_reset_fake_helper
   puts
   putd_backslash "#define DEFINE_RESET_FUNCTION(FUNCNAME)"
@@ -252,6 +301,33 @@ def define_reset_fake_helper
       putd_backslash "FUNCNAME##_fake.arg_history_len = FFF_ARG_HISTORY_LEN;"
     }
     putd "}"
+  }
+end
+
+def declare_pthread_mutex
+  puts
+  putd_backslash "#define DECLARE_PTHREAD_MUTEX"
+  indent {
+    putd "pthread_mutex_t access_mtx;"
+  }
+end
+
+def define_pthread_mutex_lock
+  puts
+  putd_backslash "#define FFF_PTHREAD_MUTEX_LOCK(FUNCNAME)"
+  indent {
+    putd_backslash "if (pthread_mutex_lock(&FUNCNAME##_fake.access_mtx) == EINVAL) {"
+    putd_backslash "pthread_mutex_init(&FUNCNAME##_fake.access_mtx, NULL);"
+    putd_backslash "pthread_mutex_lock(&FUNCNAME##_fake.access_mtx);"
+    putd_backslash "}"
+  }
+end
+
+def define_pthread_mutex_unlock
+  puts
+  putd_backslash "#define FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME)"
+  indent {
+    putd "pthread_mutex_unlock(&FUNCNAME##_fake.access_mtx)"
   }
 end
 # ------  End Helper macros ------ #
@@ -282,9 +358,10 @@ def indent
   popd
 end
 
-def output_macro(arg_count, has_varargs, has_calling_conventions, is_value_function)
+def output_macro(arg_count, has_varargs, has_thread_safety, has_calling_conventions, is_value_function)
 
   vararg_name = has_varargs ? "_VARARG" : ""
+  vararg_name += has_thread_safety ? "_TS" : ""
   fake_macro_name = is_value_function ? "FAKE_VALUE_FUNC#{arg_count}#{vararg_name}" : "FAKE_VOID_FUNC#{arg_count}#{vararg_name}"
   declare_macro_name = "DECLARE_#{fake_macro_name}"
   define_macro_name = "DEFINE_#{fake_macro_name}"
@@ -294,7 +371,7 @@ def output_macro(arg_count, has_varargs, has_calling_conventions, is_value_funct
   puts
   output_macro_header(declare_macro_name, saved_arg_count, has_varargs, has_calling_conventions, return_type)
   indent {
-    output_variables(saved_arg_count, has_varargs, has_calling_conventions, is_value_function)
+    output_variables(saved_arg_count, has_varargs, has_thread_safety, has_calling_conventions, is_value_function)
   }
 
   puts
@@ -303,10 +380,15 @@ def output_macro(arg_count, has_varargs, has_calling_conventions, is_value_funct
     putd_backslash "FUNCNAME##_Fake FUNCNAME##_fake;"
     putd_backslash function_signature(saved_arg_count, has_varargs, has_calling_conventions, is_value_function) + "{"
     indent {
-      output_function_body(saved_arg_count, has_varargs, is_value_function)
+      output_function_body(saved_arg_count, has_varargs, has_thread_safety, is_value_function)
     }
     putd_backslash "}"
-    putd_backslash "DEFINE_RESET_FUNCTION(FUNCNAME)"
+
+    if has_thread_safety
+      putd_backslash "DEFINE_RESET_FUNCTION_TS(FUNCNAME)"
+    else
+      putd_backslash "DEFINE_RESET_FUNCTION(FUNCNAME)"
+    end
   }
 
   puts
@@ -347,11 +429,14 @@ def macro_signature_for(macro_name, arg_count, has_varargs, has_calling_conventi
   parameter_list
 end
 
-def output_variables(arg_count, has_varargs, has_calling_conventions, is_value_function)
+def output_variables(arg_count, has_varargs, has_thread_safety,has_calling_conventions, is_value_function)
   in_struct{
     arg_count.times { |argN|
       putd_backslash "DECLARE_ARG(ARG#{argN}_TYPE, #{argN}, FUNCNAME)"
     }
+    if has_thread_safety
+      putd_backslash "DECLARE_PTHREAD_MUTEX"
+    end
     putd_backslash "DECLARE_ALL_FUNC_COMMON"
     putd_backslash "DECLARE_VALUE_FUNCTION_VARIABLES(RETURN_TYPE)" unless not is_value_function
     putd_backslash "DECLARE_RETURN_VALUE_HISTORY(RETURN_TYPE)" unless not is_value_function
@@ -416,7 +501,12 @@ def function_signature(arg_count, has_varargs, has_calling_conventions, is_value
     "#{return_type} FFF_GCC_FUNCTION_ATTRIBUTES FUNCNAME(#{arg_val_list(arg_count)}#{varargs})"
 end
 
-def output_function_body(arg_count, has_varargs, is_value_function)
+def output_function_body(arg_count, has_varargs, has_thread_safety, is_value_function)
+
+  if has_thread_safety
+    putd_backslash "FFF_PTHREAD_MUTEX_LOCK(FUNCNAME);"
+  end
+
   arg_count.times { |i| putd_backslash "SAVE_ARG(FUNCNAME, #{i});" }
   putd_backslash "if(ROOM_FOR_MORE_HISTORY(FUNCNAME)){"
   indent {
@@ -442,6 +532,7 @@ def output_function_body(arg_count, has_varargs, is_value_function)
       putd_backslash "RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](#{arg_list(arg_count)}, ap);" unless not is_value_function
       putd_backslash "SAVE_RET_HISTORY(FUNCNAME, ret);" unless not is_value_function
       putd_backslash "va_end(ap);"  unless not is_value_function
+      putd_backslash "FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME);" if has_thread_safety and is_value_function
       putd_backslash "return ret;" unless not is_value_function
       putd_backslash "#{return_type}FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](#{arg_list(arg_count)}, ap);" unless is_value_function
       putd_backslash "va_end(ap);" unless is_value_function
@@ -454,6 +545,7 @@ def output_function_body(arg_count, has_varargs, is_value_function)
       putd_backslash "RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](#{arg_list(arg_count)}, ap);" unless not is_value_function
       putd_backslash "SAVE_RET_HISTORY(FUNCNAME, ret);" unless not is_value_function
       putd_backslash "va_end(ap);"  unless not is_value_function
+      putd_backslash "FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME);" if has_thread_safety and is_value_function
       putd_backslash "return ret;" unless not is_value_function
       putd_backslash "#{return_type}FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](#{arg_list(arg_count)}, ap);" unless is_value_function
       putd_backslash "va_end(ap);" unless is_value_function
@@ -476,6 +568,7 @@ def output_function_body(arg_count, has_varargs, is_value_function)
       end
       putd_backslash "va_end(ap);"
       putd_backslash "SAVE_RET_HISTORY(FUNCNAME, ret);" unless not is_value_function
+      putd_backslash "FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME);" if has_thread_safety and is_value_function
       putd_backslash "return ret;" if is_value_function
     }
     putd_backslash "}"
@@ -487,6 +580,7 @@ def output_function_body(arg_count, has_varargs, is_value_function)
       indent {
         putd_backslash "RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](#{arg_list(arg_count)});" unless not is_value_function
         putd_backslash "SAVE_RET_HISTORY(FUNCNAME, ret);" unless not is_value_function
+        putd_backslash "FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME);" if has_thread_safety and is_value_function
         putd_backslash "return ret;" unless not is_value_function
         putd_backslash "#{return_type}FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_idx++](#{arg_list(arg_count)});" unless is_value_function
       }
@@ -495,6 +589,7 @@ def output_function_body(arg_count, has_varargs, is_value_function)
       indent {
         putd_backslash "RETURN_TYPE ret = FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](#{arg_list(arg_count)});" unless not is_value_function
         putd_backslash "SAVE_RET_HISTORY(FUNCNAME, ret);" unless not is_value_function
+        putd_backslash "FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME);" if has_thread_safety and is_value_function
         putd_backslash "return ret;" unless not is_value_function
         putd_backslash "#{return_type}FUNCNAME##_fake.custom_fake_seq[FUNCNAME##_fake.custom_fake_seq_len-1](#{arg_list(arg_count)});" unless is_value_function
       }
@@ -505,13 +600,23 @@ def output_function_body(arg_count, has_varargs, is_value_function)
     indent {
         putd_backslash "RETURN_TYPE ret = FUNCNAME##_fake.custom_fake(#{arg_list(arg_count)});" unless not is_value_function
         putd_backslash "SAVE_RET_HISTORY(FUNCNAME, ret);" unless not is_value_function
+        putd_backslash "FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME);" if has_thread_safety and is_value_function
         putd_backslash "return ret;" unless not is_value_function
         putd_backslash "#{return_type}FUNCNAME##_fake.custom_fake(#{arg_list(arg_count)});" unless is_value_function
     }
     putd_backslash "}"
   end
 
-  putd_backslash "RETURN_FAKE_RESULT(FUNCNAME)" if is_value_function
+  if not is_value_function
+    putd_backslash "FFF_PTHREAD_MUTEX_UNLOCK(FUNCNAME);" if has_thread_safety
+  else
+    if has_thread_safety
+      putd_backslash "RETURN_FAKE_RESULT_TS(FUNCNAME)"
+    else
+      putd_backslash "RETURN_FAKE_RESULT(FUNCNAME)"
+    end
+  end
+
 end
 
 def define_fff_globals
@@ -580,8 +685,9 @@ def generate_arg_sequence(args, prefix, do_reverse, joinstr)
   if do_reverse then fmap.reverse.join(joinstr) else fmap.join(", ") end
 end
 
-def counting_macro_instance(type, has_calling_conventions, vararg = :non_vararg, prefix = "")
+def counting_macro_instance(type, has_calling_conventions, vararg = :non_vararg, thread_safe = :non_ts, prefix = "")
   appendix = (vararg == :vararg) ? "_VARARG" : ""
+  appendix += (thread_safe == :non_ts) ? "" : "_TS"
   if has_calling_conventions
     minus_count = (type == :VOID) ? 2 : 3
   else
@@ -596,7 +702,7 @@ def counting_macro_instance(type, has_calling_conventions, vararg = :non_vararg,
     EXPAND(#{prefix}FUNC_#{type.to_s}#{appendix}_N(N,__VA_ARGS__))
 
 #define #{prefix}FUNC_#{type.to_s}#{appendix}_N(N,...) \
-    EXPAND(#{prefix}FAKE_#{type.to_s}_FUNC ## N#{" ## _VARARG" if vararg == :vararg}(__VA_ARGS__))
+    EXPAND(#{prefix}FAKE_#{type.to_s}_FUNC ## N#{" ## _VARARG" if vararg == :vararg}#{" ## _TS" if thread_safe == :thread_safe}(__VA_ARGS__))
 
   MACRO_COUNTING_INSTANCE
 end
@@ -635,24 +741,39 @@ def output_macro_counting_shortcuts(has_calling_conventions)
 
 /* DECLARE AND DEFINE FAKE FUNCTIONS - PLACE IN TEST FILES */
 
-#{counting_macro_instance(:VALUE, has_calling_conventions)}
-#{counting_macro_instance(:VOID,  has_calling_conventions)}
-#{counting_macro_instance(:VALUE, has_calling_conventions, :vararg)}
-#{counting_macro_instance(:VOID, has_calling_conventions, :vararg)}
+#{counting_macro_instance(:VALUE, has_calling_conventions, :non_ts)}
+#{counting_macro_instance(:VOID,  has_calling_conventions, :non_ts)}
+#{counting_macro_instance(:VALUE, has_calling_conventions, :vararg, :non_ts)}
+#{counting_macro_instance(:VOID, has_calling_conventions, :vararg, :non_ts)}
+
+#{counting_macro_instance(:VALUE, has_calling_conventions, :non_vararg, :thread_safe)}
+#{counting_macro_instance(:VOID,  has_calling_conventions, :non_vararg, :thread_safe)}
+#{counting_macro_instance(:VALUE, has_calling_conventions, :vararg, :thread_safe)}
+#{counting_macro_instance(:VOID, has_calling_conventions, :vararg, :thread_safe)}
 
 /* DECLARE FAKE FUNCTIONS - PLACE IN HEADER FILES */
 
-#{counting_macro_instance(:VALUE, has_calling_conventions, :non_vararg, "DECLARE_")}
-#{counting_macro_instance(:VOID, has_calling_conventions, :non_vararg, "DECLARE_")}
-#{counting_macro_instance(:VALUE, has_calling_conventions, :vararg, "DECLARE_")}
-#{counting_macro_instance(:VOID, has_calling_conventions, :vararg, "DECLARE_")}
+#{counting_macro_instance(:VALUE, has_calling_conventions, :non_vararg, :non_ts, "DECLARE_")}
+#{counting_macro_instance(:VOID, has_calling_conventions, :non_vararg, :non_ts, "DECLARE_")}
+#{counting_macro_instance(:VALUE, has_calling_conventions, :vararg, :non_ts, "DECLARE_")}
+#{counting_macro_instance(:VOID, has_calling_conventions, :vararg, :non_ts, "DECLARE_")}
+
+#{counting_macro_instance(:VALUE, has_calling_conventions, :non_vararg, :thread_safe, "DECLARE_")}
+#{counting_macro_instance(:VOID, has_calling_conventions, :non_vararg, :thread_safe, "DECLARE_")}
+#{counting_macro_instance(:VALUE, has_calling_conventions, :vararg, :thread_safe, "DECLARE_")}
+#{counting_macro_instance(:VOID, has_calling_conventions, :vararg, :thread_safe, "DECLARE_")}
 
 /* DEFINE FAKE FUNCTIONS - PLACE IN SOURCE FILES */
 
-#{counting_macro_instance(:VALUE, has_calling_conventions, :non_vararg, "DEFINE_")}
-#{counting_macro_instance(:VOID, has_calling_conventions, :non_vararg, "DEFINE_")}
-#{counting_macro_instance(:VALUE, has_calling_conventions, :vararg, "DEFINE_")}
-#{counting_macro_instance(:VOID, has_calling_conventions, :vararg, "DEFINE_")}
+#{counting_macro_instance(:VALUE, has_calling_conventions, :non_vararg, :non_ts, "DEFINE_")}
+#{counting_macro_instance(:VOID, has_calling_conventions, :non_vararg, :non_ts, "DEFINE_")}
+#{counting_macro_instance(:VALUE, has_calling_conventions, :vararg, :non_ts, "DEFINE_")}
+#{counting_macro_instance(:VOID, has_calling_conventions, :vararg, :non_ts, "DEFINE_")}
+
+#{counting_macro_instance(:VALUE, has_calling_conventions, :non_vararg, :thread_safe, "DEFINE_")}
+#{counting_macro_instance(:VOID, has_calling_conventions, :non_vararg, :thread_safe, "DEFINE_")}
+#{counting_macro_instance(:VALUE, has_calling_conventions, :vararg, :thread_safe, "DEFINE_")}
+#{counting_macro_instance(:VOID, has_calling_conventions, :vararg, :thread_safe, "DEFINE_")}
 
   MACRO_COUNTING
 end
@@ -688,10 +809,17 @@ help {
     define_fff_globals
     # Create fake generators for 0..MAX_ARGS
     num_fake_generators = $MAX_ARGS + 1
-    num_fake_generators.times {|arg_count| output_macro(arg_count, false, has_calling_conventions, false)}
-    num_fake_generators.times {|arg_count| output_macro(arg_count, false, has_calling_conventions, true)}
+    num_fake_generators.times {|arg_count| output_macro(arg_count, false, false, has_calling_conventions, false)}
+    num_fake_generators.times {|arg_count| output_macro(arg_count, false, false, has_calling_conventions, true)}
     # generate the varargs variants
-    (2..$MAX_ARGS).each {|arg_count| output_macro(arg_count, true, has_calling_conventions, false)}
-    (2..$MAX_ARGS).each {|arg_count| output_macro(arg_count, true, has_calling_conventions, true)}
+    (2..$MAX_ARGS).each {|arg_count| output_macro(arg_count, true, false, has_calling_conventions, false)}
+    (2..$MAX_ARGS).each {|arg_count| output_macro(arg_count, true, false, has_calling_conventions, true)}
+
+    # generate mutex variants
+    num_fake_generators.times {|arg_count| output_macro(arg_count, false, true, has_calling_conventions, false)}
+    num_fake_generators.times {|arg_count| output_macro(arg_count, false, true, has_calling_conventions, true)}
+    # generate the varargs variants
+    (2..$MAX_ARGS).each {|arg_count| output_macro(arg_count, true, true, has_calling_conventions, false)}
+    (2..$MAX_ARGS).each {|arg_count| output_macro(arg_count, true, true, has_calling_conventions, true)}
   }
 }
